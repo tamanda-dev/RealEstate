@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#0c1a40"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="32" y1="10" x2="32" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fcd34d"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="32" y1="33" x2="32" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon box -->
+  <rect width="64" height="64" rx="13" fill="url(#bg)"/>
+  <rect width="64" height="64" rx="13" fill="none" stroke="#3b82f6" stroke-width="0.6" opacity="0.3"/>
+
+  <!-- Shadow -->
+  <polygon points="32,14 7,37 57,37" fill="#000" opacity="0.15" transform="translate(0,2)"/>
+  <rect x="12" y="35" width="40" height="22" rx="2" fill="#000" opacity="0.12" transform="translate(0,2)"/>
+
+  <!-- Roof -->
+  <polygon points="32,12 7,36 57,36" fill="url(#roof)"/>
+  <line x1="32" y1="12" x2="7" y2="36" stroke="#fde68a" stroke-width="0.8" opacity="0.6"/>
+  <line x1="32" y1="12" x2="57" y2="36" stroke="#fde68a" stroke-width="0.8" opacity="0.6"/>
+
+  <!-- Walls -->
+  <rect x="12" y="34" width="40" height="22" rx="2" fill="url(#wall)"/>
+
+  <!-- Left window -->
+  <rect x="14.5" y="38" width="9" height="7.5" rx="1.5" fill="#93c5fd" opacity="0.85"/>
+  <line x1="19" y1="38" x2="19" y2="45.5" stroke="#1e3a8a" stroke-width="0.8" opacity="0.5"/>
+  <line x1="14.5" y1="41.75" x2="23.5" y2="41.75" stroke="#1e3a8a" stroke-width="0.8" opacity="0.5"/>
+
+  <!-- Right window -->
+  <rect x="40.5" y="38" width="9" height="7.5" rx="1.5" fill="#93c5fd" opacity="0.85"/>
+  <line x1="45" y1="38" x2="45" y2="45.5" stroke="#1e3a8a" stroke-width="0.8" opacity="0.5"/>
+  <line x1="40.5" y1="41.75" x2="49.5" y2="41.75" stroke="#1e3a8a" stroke-width="0.8" opacity="0.5"/>
+
+  <!-- Door -->
+  <path d="M27,56 L27,44.5 A5,4.5 0 0,1 37,44.5 L37,56 Z" fill="#1e40af"/>
+  <circle cx="35.5" cy="50.5" r="1" fill="#fcd34d" opacity="0.9"/>
+
+  <!-- Text: PropManager -->
+  <text x="74" y="28" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#1e3a8a" letter-spacing="-0.3">PropManager</text>
+  <!-- Text: ZW badge -->
+  <rect x="74" y="35" width="22" height="14" rx="3" fill="#f59e0b"/>
+  <text x="85" y="46" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="800" fill="#1e3a8a" text-anchor="middle" letter-spacing="0.5">ZW</text>
+  <!-- Subtitle -->
+  <text x="100" y="46" font-family="system-ui, -apple-system, sans-serif" font-size="9.5" fill="#64748b" letter-spacing="0.2">Real Estate ERP</text>
+</svg>
