@@ -10,8 +10,15 @@ from .serializers import PropertySerializer, PropertyListSerializer, PropertyIma
 class PropertyViewSet(viewsets.ModelViewSet):
     queryset = Property.objects.select_related('owner', 'manager').prefetch_related('images', 'units')
     search_fields = ['name', 'address', 'city', 'state']
-    filterset_fields = ['property_type', 'status', 'city', 'state']
+    filterset_fields = ['property_type', 'status', 'city', 'state', 'owner']
     ordering_fields = ['created_at', 'monthly_rent', 'current_value', 'square_feet']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.role in ('landlord', 'owner'):
+            return qs.filter(owner=user)
+        return qs
 
     def get_serializer_class(self):
         if self.action == 'list':

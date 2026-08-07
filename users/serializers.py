@@ -5,13 +5,14 @@ from .models import User
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     role_display = serializers.CharField(source='get_role_display', read_only=True)
+    is_internal_staff = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
-            'role', 'role_display', 'phone', 'avatar', 'is_active', 'created_at',
-            'date_joined', 'last_login',
+            'role', 'role_display', 'is_internal_staff', 'phone', 'avatar', 'is_active',
+            'created_at', 'date_joined', 'last_login',
         ]
         read_only_fields = ['created_at', 'date_joined', 'last_login']
 
@@ -68,3 +69,12 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if value not in valid_roles:
             raise serializers.ValidationError(f'Invalid role. Choose from: {valid_roles}')
         return value
+
+
+class SelfProfileUpdateSerializer(serializers.ModelSerializer):
+    """Any authenticated user can update their own basic contact details — deliberately
+    excludes role/is_active/username so this can never be used for privilege escalation."""
+
+    class Meta:
+        model = User
+        fields = ['email', 'first_name', 'last_name', 'phone', 'avatar']

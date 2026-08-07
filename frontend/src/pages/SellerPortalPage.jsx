@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react'
 import {
   Building2, DollarSign, Eye, Tag, TrendingUp, BarChart2,
-  CheckCircle, ArrowRight,
+  CheckCircle, ArrowRight, FileText, Receipt, UserCog,
 } from 'lucide-react'
-import { propertiesAPI, rentAPI, salesAPI } from '../services/api'
+import { propertiesAPI, rentAPI, salesAPI, reportsAPI, usersAPI } from '../services/api'
 import { portalAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import Badge from '../components/Badge'
 import StatCard from '../components/StatCard'
+import Table from '../components/Table'
 
 const fmtUSD = (v) => v != null ? `$${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
-const TABS = ['My Portfolio', 'Offers Received', 'Listing Performance']
+const TABS = ['My Portfolio', 'Rental Statements', 'Invoices', 'Offers Received', 'Listing Performance', 'Account Details']
+const currentYear = new Date().getFullYear()
 
 export default function SellerPortalPage() {
   const { user } = useAuth()
@@ -54,6 +56,84 @@ export default function SellerPortalPage() {
   useEffect(() => {
     loadAll()
   }, [])
+
+  // ── Rental Statements ──
+  const [statementYear, setStatementYear] = useState(currentYear)
+  const [statement, setStatement] = useState(null)
+  const [statementLoading, setStatementLoading] = useState(false)
+
+  const loadStatement = async () => {
+    if (!user?.id) return
+    setStatementLoading(true)
+    try {
+      const { data } = await reportsAPI.landlordLedger(user.id, statementYear)
+      setStatement(data)
+    } catch {
+      toast('Failed to load rental statement', 'error')
+    } finally {
+      setStatementLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'Rental Statements') loadStatement()
+  }, [tab, statementYear]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Invoices ──
+  const [invoices, setInvoices] = useState([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
+
+  const loadInvoices = async () => {
+    setInvoicesLoading(true)
+    try {
+      const { data } = await rentAPI.invoices.list()
+      setInvoices(Array.isArray(data) ? data : data.results ?? [])
+    } catch {
+      toast('Failed to load invoices', 'error')
+    } finally {
+      setInvoicesLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'Invoices') loadInvoices()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Account Details ──
+  const [accountForm, setAccountForm] = useState({ first_name: '', last_name: '', email: '', phone: '' })
+  const [savingAccount, setSavingAccount] = useState(false)
+
+  useEffect(() => {
+    if (tab === 'Account Details' && user) {
+      setAccountForm({
+        first_name: user.first_name || '', last_name: user.last_name || '',
+        email: user.email || '', phone: user.phone || '',
+      })
+    }
+  }, [tab, user])
+
+  const handleSaveAccount = async (e) => {
+    e.preventDefault()
+    setSavingAccount(true)
+    try {
+      await usersAPI.updateMe(accountForm)
+      toast('Account details updated', 'success')
+    } catch (err) {
+      toast(err?.response?.data?.detail ?? 'Failed to update account details', 'error')
+    } finally {
+      setSavingAccount(false)
+    }
+  }
+
+  const invoiceColumns = [
+    { key: 'invoice_number', label: 'Invoice #', render: (v) => <span className="font-mono text-xs">{v}</span> },
+    { key: 'property_name', label: 'Property' },
+    { key: 'tenant_name', label: 'Tenant' },
+    { key: 'due_date', label: 'Due Date', render: (v) => fmtDate(v) },
+    { key: 'total_amount', label: 'Amount', render: (v) => fmtUSD(v) },
+    { key: 'paid_amount', label: 'Paid', render: (v) => fmtUSD(v) },
+    { key: 'status', label: 'Status', render: (v) => <Badge value={v} /> },
+  ]
 
   const handleReviewOffer = async (offer) => {
     try {
@@ -162,13 +242,71 @@ export default function SellerPortalPage() {
                   {rentStats && p.status === 'rented' && (
                     <div className="mt-3 flex items-center gap-2 text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2">
                       <CheckCircle size={14} />
-                      Rent is being collected. Contact your property manager for disbursement details.
+                      Rent is being collected — see the "Rental Statements" tab for disbursement details.
                     </div>
                   )}
                 </div>
               )
             })
           )}
+        </div>
+      )}
+
+      {/* ── Rental Statements ── */}
+      {tab === 'Rental Statements' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3">
+            <label className="text-sm font-medium text-slate-600">Year</label>
+            <select value={statementYear} onChange={(e) => setStatementYear(Number(e.target.value))}
+              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
+              {[currentYear, currentYear - 1, currentYear - 2].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
+          {statementLoading ? (
+            <div className="animate-pulse bg-slate-100 rounded-xl h-40" />
+          ) : statement ? (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                <StatCard icon={TrendingUp} label="Annual Gross Rent" value={fmtUSD(statement.annual_gross_rent)} color="blue" />
+                <StatCard icon={DollarSign} label="Annual Net Disbursed" value={fmtUSD(statement.annual_net_disbursed)} color="green" />
+                <StatCard icon={Receipt} label="Deductions (Commission/VAT)" value={fmtUSD(statement.annual_deductions)} color="amber" />
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-100">
+                  <h3 className="font-semibold text-slate-800 text-sm">Monthly Breakdown — {statementYear}</h3>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+                    <tr><th className="text-left px-4 py-2">Month</th><th className="text-right px-4 py-2">Gross Rent</th><th className="text-right px-4 py-2">Net Disbursed</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(statement.monthly ?? []).map((m) => (
+                      <tr key={m.month}>
+                        <td className="px-4 py-2">{m.month}</td>
+                        <td className="px-4 py-2 text-right">{fmtUSD(m.gross_rent)}</td>
+                        <td className="px-4 py-2 text-right font-medium text-green-700">{fmtUSD(m.net_disbursed)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              <FileText size={40} className="mx-auto mb-2 opacity-30" />
+              <p>No statement data for {statementYear}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Invoices ── */}
+      {tab === 'Invoices' && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <Table columns={invoiceColumns} data={invoices} loading={invoicesLoading} emptyMessage="No invoices found for your properties." />
         </div>
       )}
 
@@ -271,6 +409,53 @@ export default function SellerPortalPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* ── Account Details ── */}
+      {tab === 'Account Details' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-lg">
+          <div className="flex items-center gap-2 mb-4">
+            <UserCog size={18} className="text-slate-400" />
+            <h3 className="font-semibold text-slate-800">My Account Details</h3>
+          </div>
+          <form onSubmit={handleSaveAccount} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">First Name</label>
+                <input type="text" value={accountForm.first_name}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, first_name: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Last Name</label>
+                <input type="text" value={accountForm.last_name}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, last_name: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Email</label>
+              <input type="email" value={accountForm.email}
+                onChange={(e) => setAccountForm((f) => ({ ...f, email: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Phone</label>
+              <input type="text" value={accountForm.phone}
+                onChange={(e) => setAccountForm((f) => ({ ...f, phone: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Username</label>
+              <input type="text" value={user?.username ?? ''} disabled
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-400" />
+            </div>
+            <button type="submit" disabled={savingAccount}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
+              {savingAccount ? 'Saving…' : 'Save Changes'}
+            </button>
+          </form>
         </div>
       )}
     </div>

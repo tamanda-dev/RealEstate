@@ -277,6 +277,7 @@ export const notificationsAPI = {
 export const usersAPI = {
   list: (params) => api.get('/users/', { params }),
   tenants: () => api.get('/users/tenants/'),
+  updateMe: (data) => api.patch('/users/me/', data),
 }
 
 // ── CRM ───────────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import {
   Building2, FileText, Wrench, DollarSign, AlertTriangle,
   TrendingUp, Users, BarChart2, ArrowRight, Bell, Clock,
@@ -75,6 +75,11 @@ function Skeleton({ className = '' }) {
 
 export default function Dashboard() {
   const { user } = useAuth()
+  // Landlords/owners have their own dedicated portal (with data properly scoped to their
+  // own properties) — this shared Dashboard pulls portfolio-wide stats across every
+  // property in the system, which is never appropriate for them to see.
+  const isLandlord = user?.role === 'landlord' || user?.role === 'owner'
+  const isInternalStaff = !!user?.is_internal_staff
   const [stats, setStats] = useState({ properties: null, rent: null, leases: null, maintenance: null, sales: null })
   const [analytics, setAnalytics] = useState(null)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -94,6 +99,7 @@ export default function Dashboard() {
   const fmtPct = (v) => v != null ? `${v}%` : '—'
 
   useEffect(() => {
+    if (isLandlord) return // redirected below — skip the portfolio-wide fetch entirely
     const load = async () => {
       setLoading(true)
       const [prop, rent, lease, maint, sale, analytics, notif] = await Promise.allSettled([
@@ -117,7 +123,7 @@ export default function Dashboard() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [isLandlord])
 
   const s = stats
   const hasAlerts = (
@@ -135,6 +141,8 @@ export default function Dashboard() {
 
   // Monthly chart data
   const chartData = analytics?.monthly_data?.filter(d => d.revenue > 0 || d.expenses > 0) || []
+
+  if (isLandlord) return <Navigate to="/seller-portal" replace />
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -327,26 +335,28 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h2 className="font-semibold text-slate-800 mb-4">Quick Actions</h2>
-        <div className="flex flex-wrap gap-3">
-          {[
-            { to: '/properties', label: 'Add Property', icon: Building2, color: 'bg-blue-600' },
-            { to: '/rent', label: 'Record Payment', icon: DollarSign, color: 'bg-green-600' },
-            { to: '/maintenance', label: 'New Work Order', icon: Wrench, color: 'bg-amber-600' },
-            { to: '/leases', label: 'New Lease', icon: FileText, color: 'bg-purple-600' },
-            { to: '/sales', label: 'New Listing', icon: TrendingUp, color: 'bg-rose-600' },
-            { to: '/analytics', label: 'View Analytics', icon: BarChart2, color: 'bg-slate-700' },
-          ].map(({ to, label, icon: Icon, color }) => (
-            <Link key={to} to={to}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium ${color} hover:opacity-90 transition-opacity`}>
-              <Icon size={15} />
-              {label}
-            </Link>
-          ))}
+      {/* Quick actions — internal staff only; tenants/landlords/buyers get no operational shortcuts here */}
+      {isInternalStaff && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="font-semibold text-slate-800 mb-4">Quick Actions</h2>
+          <div className="flex flex-wrap gap-3">
+            {[
+              { to: '/properties', label: 'Add Property', icon: Building2, color: 'bg-blue-600' },
+              { to: '/rent', label: 'Record Payment', icon: DollarSign, color: 'bg-green-600' },
+              { to: '/maintenance', label: 'New Work Order', icon: Wrench, color: 'bg-amber-600' },
+              { to: '/leases', label: 'New Lease', icon: FileText, color: 'bg-purple-600' },
+              { to: '/sales', label: 'New Listing', icon: TrendingUp, color: 'bg-rose-600' },
+              { to: '/analytics', label: 'View Analytics', icon: BarChart2, color: 'bg-slate-700' },
+            ].map(({ to, label, icon: Icon, color }) => (
+              <Link key={to} to={to}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium ${color} hover:opacity-90 transition-opacity`}>
+                <Icon size={15} />
+                {label}
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

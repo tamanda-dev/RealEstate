@@ -3,7 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from .models import User
-from .serializers import UserSerializer, UserCreateSerializer, UserUpdateSerializer
+from .serializers import (UserSerializer, UserCreateSerializer, UserUpdateSerializer,
+                           SelfProfileUpdateSerializer)
 
 
 class IsAdminOrManager(permissions.BasePermission):
@@ -40,8 +41,15 @@ class UserViewSet(viewsets.ModelViewSet):
 
     # ── Read endpoints ────────────────────────────────────────────────────────
 
-    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=['get', 'patch'], permission_classes=[permissions.IsAuthenticated])
     def me(self, request):
+        if request.method == 'PATCH':
+            # Deliberately uses SelfProfileUpdateSerializer, not UserUpdateSerializer —
+            # a user editing their own profile must never be able to change their own
+            # role or is_active (that stays admin-only via the regular update endpoint).
+            serializer = SelfProfileUpdateSerializer(request.user, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
         return Response(UserSerializer(request.user).data)
 
     @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager])

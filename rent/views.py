@@ -48,6 +48,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'tenant':
             return qs.filter(tenant=user)
+        if user.role in ('landlord', 'owner'):
+            return qs.filter(property__owner=user)
         return qs
 
     @action(detail=True, methods=['post'])
@@ -192,6 +194,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         qs = Invoice.objects.all()
         if request.user.role == 'tenant':
             qs = qs.filter(tenant=request.user)
+        elif request.user.role in ('landlord', 'owner'):
+            qs = qs.filter(property__owner=request.user)
         stats = {
             'total_invoiced': qs.aggregate(t=Sum('total_amount'))['t'] or 0,
             'total_collected': qs.aggregate(p=Sum('paid_amount'))['p'] or 0,

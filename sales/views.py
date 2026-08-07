@@ -15,6 +15,13 @@ class ListingViewSet(viewsets.ModelViewSet):
     search_fields = ['property__name', 'property__address', 'mls_number']
     ordering_fields = ['asking_price', 'listing_date', 'days_on_market']
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.role in ('landlord', 'owner'):
+            return qs.filter(property__owner=user)
+        return qs
+
     @action(detail=True, methods=['post'])
     def track_view(self, request, pk=None):
         listing = self.get_object()
