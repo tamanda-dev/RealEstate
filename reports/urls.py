@@ -1,7 +1,9 @@
 from django.urls import path
 from .views import (aging_report, pl_report, agent_performance, cash_flow_forecast,
                     inventory_report, tenant_ledger, landlord_ledger, vat_zimra_report,
-                    commission_trends, rent_per_sqm_report, market_price_analysis)
+                    commission_trends, rent_per_sqm_report, market_price_analysis,
+                    trial_balance, balance_sheet, rent_statement, distribute_rent_statement,
+                    rent_roll)
 
 urlpatterns = [
     path('aging/', aging_report, name='aging-report'),
@@ -15,4 +17,9 @@ urlpatterns = [
     path('commission-trends/', commission_trends, name='commission-trends'),
     path('rent-per-sqm/', rent_per_sqm_report, name='rent-per-sqm'),
     path('market-price-analysis/', market_price_analysis, name='market-price-analysis'),
+    path('trial-balance/', trial_balance, name='trial-balance'),
+    path('balance-sheet/', balance_sheet, name='balance-sheet'),
+    path('rent-statement/', rent_statement, name='rent-statement'),
+    path('rent-statement/distribute/', distribute_rent_statement, name='rent-statement-distribute'),
+    path('rent-roll/', rent_roll, name='rent-roll'),
 ]

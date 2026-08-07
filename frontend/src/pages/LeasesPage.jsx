@@ -5,7 +5,7 @@ import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 
-const TABS = ['Active Leases', 'All Leases', 'Expiring Soon', 'Clause Library']
+const TABS = ['Active Leases', 'All Leases', 'Expiring Soon', 'Lease Diary', 'Clause Library']
 
 const LEASE_STATUSES = ['draft', 'active', 'expired', 'terminated', 'renewal_pending']
 
@@ -103,11 +103,46 @@ export default function LeasesPage() {
     } catch {}
   }
 
+  // ── Lease Diary ──
+  const [diaryEvents, setDiaryEvents] = useState([])
+  const [reviewModal, setReviewModal] = useState(false)
+  const [reviewLeaseId, setReviewLeaseId] = useState(null)
+  const [reviewForm, setReviewForm] = useState({ new_rent: '', notes: '' })
+  const [savingReview, setSavingReview] = useState(false)
+
+  const fetchDiary = async () => {
+    try {
+      const { data } = await leasesAPI.diary(90)
+      setDiaryEvents(data.events ?? [])
+    } catch {}
+  }
+
+  const openReview = (leaseId) => {
+    setReviewLeaseId(leaseId)
+    setReviewForm({ new_rent: '', notes: '' })
+    setReviewModal(true)
+  }
+
+  const handleConductReview = async (e) => {
+    e.preventDefault()
+    setSavingReview(true)
+    try {
+      await leasesAPI.conductRentReview(reviewLeaseId, reviewForm)
+      setReviewModal(false)
+      fetchDiary()
+    } catch {
+      setError('Failed to record rent review.')
+    } finally {
+      setSavingReview(false)
+    }
+  }
+
   useEffect(() => { fetchActive() }, [])
 
   useEffect(() => {
     if (tab === 'All Leases')     fetchAll()
     if (tab === 'Expiring Soon')  fetchExpiring()
+    if (tab === 'Lease Diary')    fetchDiary()
     if (tab === 'Clause Library') fetchClauses()
   }, [tab])
 
@@ -234,6 +269,38 @@ export default function LeasesPage() {
     }
   }
 
+  // ── Resolve pending renewal (accept/decline) ──────────────────────────────────
+  const [resolveModal, setResolveModal] = useState(false)
+  const [pendingRenewal, setPendingRenewal] = useState(null)
+  const [resolving, setResolving] = useState(false)
+
+  const openResolveRenewal = async (lease) => {
+    try {
+      const { data } = await leasesAPI.renewals.list({ lease: lease.id, status: 'pending' })
+      const renewal = (Array.isArray(data) ? data : data.results ?? [])[0]
+      if (!renewal) { setError('No pending renewal found for this lease.'); return }
+      setPendingRenewal(renewal)
+      setResolveModal(true)
+    } catch {
+      setError('Failed to load pending renewal.')
+    }
+  }
+
+  const handleResolveRenewal = async (action) => {
+    setResolving(true)
+    try {
+      if (action === 'accept') await leasesAPI.renewals.accept(pendingRenewal.id)
+      else await leasesAPI.renewals.decline(pendingRenewal.id)
+      setResolveModal(false)
+      fetchActive()
+      if (tab === 'All Leases') fetchAll()
+    } catch (err) {
+      alert(err?.response?.data?.error ?? 'Failed to resolve renewal.')
+    } finally {
+      setResolving(false)
+    }
+  }
+
   // ── Clause ───────────────────────────────────────────────────────────────────
   const handleAddClause = async (e) => {
     e.preventDefault()
@@ -260,11 +327,19 @@ export default function LeasesPage() {
           className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
           <Pencil size={13} />
         </button>
-        <button onClick={() => { setSelectedLease(row); setRenewForm({ new_end_date: '', new_monthly_rent: '', notes: '' }); setRenewModal(true) }}
-          title="Renew"
-          className="text-[11px] px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-          Renew
-        </button>
+        {row.status === 'renewal_pending' ? (
+          <button onClick={() => openResolveRenewal(row)}
+            title="Resolve pending renewal"
+            className="text-[11px] px-2 py-1 rounded bg-amber-500 text-white hover:bg-amber-600">
+            Resolve Renewal
+          </button>
+        ) : (
+          <button onClick={() => { setSelectedLease(row); setRenewForm({ new_end_date: '', new_monthly_rent: '', notes: '' }); setRenewModal(true) }}
+            title="Renew"
+            className="text-[11px] px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+            Renew
+          </button>
+        )}
         <button onClick={() => handleDelete(row)}
           title="Delete"
           className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -394,6 +469,48 @@ export default function LeasesPage() {
                 </div>
               )
             })
+          )}
+        </div>
+      )}
+
+      {/* ── Lease Diary ── */}
+      {tab === 'Lease Diary' && (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400 -mt-1">
+            Automated alert feed for lease expiries, pending renewals, and rent reviews — next 90 days.
+          </p>
+          {diaryEvents.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-8 text-center text-slate-400">
+              <Clock size={36} className="mx-auto mb-3 opacity-30" />
+              <p>No upcoming lease events in the next 90 days.</p>
+            </div>
+          ) : (
+            diaryEvents.map((ev, i) => (
+              <div key={i} className={`bg-white rounded-xl border shadow-sm p-5 flex items-start gap-4 ${
+                ev.is_overdue ? 'border-red-200' : 'border-slate-100'
+              }`}>
+                <div className={`p-2.5 rounded-lg ${ev.is_overdue ? 'bg-red-50' : 'bg-blue-50'}`}>
+                  <AlertTriangle size={18} className={ev.is_overdue ? 'text-red-500' : 'text-blue-500'} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-800 text-sm">
+                      {ev.tenant_name} — {ev.property_name}
+                    </p>
+                    <Badge value={ev.type} />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {ev.description} {ev.is_overdue && <span className="text-red-600 font-semibold">(overdue)</span>}
+                  </p>
+                </div>
+                {ev.type === 'rent_review' && (
+                  <button onClick={() => openReview(ev.lease_id)}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex-shrink-0">
+                    Conduct Review
+                  </button>
+                )}
+              </div>
+            ))
           )}
         </div>
       )}
@@ -585,6 +702,32 @@ export default function LeasesPage() {
         </form>
       </Modal>
 
+      {/* ── Resolve Pending Renewal Modal ── */}
+      <Modal open={resolveModal} onClose={() => setResolveModal(false)} title="Resolve Pending Renewal" size="sm">
+        {pendingRenewal && (
+          <div className="space-y-4">
+            <div className="bg-slate-50 rounded-lg p-3 text-sm space-y-1">
+              <p className="text-slate-500">New End Date: <strong className="text-slate-800">{fmtDate(pendingRenewal.proposed_end)}</strong></p>
+              <p className="text-slate-500">New Monthly Rent: <strong className="text-slate-800">{fmtCurrency(pendingRenewal.proposed_rent)}</strong></p>
+              {pendingRenewal.notes && <p className="text-slate-500">Notes: <span className="text-slate-700">{pendingRenewal.notes}</span></p>}
+            </div>
+            <p className="text-xs text-slate-400">
+              Accepting applies these terms to the lease immediately. Declining returns the lease to active status unchanged.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => handleResolveRenewal('decline')} disabled={resolving}
+                className="flex-1 px-4 py-2 rounded-lg border border-red-200 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60">
+                Decline
+              </button>
+              <button onClick={() => handleResolveRenewal('accept')} disabled={resolving}
+                className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60">
+                {resolving ? 'Saving…' : 'Accept'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* ── Add Clause Modal ── */}
       <Modal open={clauseModal} onClose={() => setClauseModal(false)} title="Add Lease Clause" size="sm">
         <form onSubmit={handleAddClause} className="space-y-4">
@@ -614,6 +757,37 @@ export default function LeasesPage() {
             <button type="submit" disabled={savingClause}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
               {savingClause ? 'Saving…' : 'Add Clause'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Conduct Rent Review Modal */}
+      <Modal open={reviewModal} onClose={() => setReviewModal(false)} title="Conduct Rent Review" size="sm">
+        <form onSubmit={handleConductReview} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">New Monthly Rent *</label>
+            <input required type="number" step="0.01" value={reviewForm.new_rent}
+              onChange={(e) => setReviewForm((f) => ({ ...f, new_rent: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+            <textarea rows={2} value={reviewForm.notes}
+              onChange={(e) => setReviewForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="Reason for adjustment, market comparison, etc."
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          </div>
+          <p className="text-xs text-slate-400">
+            This updates the lease's monthly rent immediately and, if the lease has a recurring
+            review frequency, automatically schedules the next review date.
+          </p>
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={() => setReviewModal(false)}
+              className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={savingReview}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
+              {savingReview ? 'Saving…' : 'Save Review'}
             </button>
           </div>
         </form>

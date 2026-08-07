@@ -8,7 +8,7 @@ import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 import { useToast } from '../context/ToastContext'
-import { lettingsAPI, reportsAPI, usersAPI, propertiesAPI } from '../services/api'
+import { lettingsAPI, reportsAPI, usersAPI, propertiesAPI, maintenanceAPI } from '../services/api'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const currentYear = new Date().getFullYear()
@@ -133,6 +133,192 @@ export default function LandlordPortalPage() {
     },
   ]
 
+  // ── CONTRACTORS TAB ──
+  const [myApprovals, setMyApprovals] = useState([])
+  const [availableVendors, setAvailableVendors] = useState([])
+  const [contractorPropFilter, setContractorPropFilter] = useState('')
+  const [approving, setApproving] = useState(null)
+
+  const loadApprovals = useCallback(async () => {
+    try {
+      const res = await maintenanceAPI.approvedContractors.list()
+      setMyApprovals(Array.isArray(res.data) ? res.data : res.data?.results ?? [])
+    } catch {
+      toast.toast('Failed to load approved contractors', 'error')
+    }
+  }, [])
+
+  const loadAvailableVendors = useCallback(async () => {
+    try {
+      const res = await maintenanceAPI.approvedContractors.availableVendors(
+        contractorPropFilter ? { property: contractorPropFilter } : {}
+      )
+      setAvailableVendors(Array.isArray(res.data) ? res.data : res.data?.results ?? [])
+    } catch {
+      toast.toast('Failed to load vendor directory', 'error')
+    }
+  }, [contractorPropFilter])
+
+  useEffect(() => {
+    if (activeTab === 'contractors') { loadApprovals(); loadAvailableVendors() }
+  }, [activeTab, loadApprovals, loadAvailableVendors])
+
+  const handleApprove = async (vendorId) => {
+    setApproving(vendorId)
+    try {
+      await maintenanceAPI.approvedContractors.approve({
+        vendor: vendorId, property: contractorPropFilter || null,
+      })
+      toast.toast('Contractor approved', 'success')
+      loadApprovals()
+      loadAvailableVendors()
+    } catch (err) {
+      toast.toast(err?.response?.data?.detail ?? 'Failed to approve contractor', 'error')
+    } finally {
+      setApproving(null)
+    }
+  }
+
+  const handleRevoke = async (id) => {
+    if (!window.confirm('Revoke approval for this contractor?')) return
+    try {
+      await maintenanceAPI.approvedContractors.revoke(id)
+      toast.toast('Approval revoked', 'success')
+      loadApprovals()
+      loadAvailableVendors()
+    } catch {
+      toast.toast('Failed to revoke approval', 'error')
+    }
+  }
+
+  const approvalColumns = [
+    { key: 'contractor_name', label: 'Contractor', render: (_, row) => <span className="font-medium">{row.vendor_detail?.name}</span> },
+    { key: 'contractor_category', label: 'Category', render: (_, row) => <Badge value={row.vendor_detail?.category} /> },
+    { key: 'contractor_phone', label: 'Phone', render: (_, row) => row.vendor_detail?.phone ?? '—' },
+    { key: 'property_name', label: 'Property', render: (v) => v ?? 'All Properties' },
+    { key: 'contractor_rating', label: 'Rating', render: (_, row) => row.vendor_detail?.rating ? `★ ${row.vendor_detail.rating}` : '—' },
+    {
+      key: 'id', label: '',
+      render: (v) => (
+        <button onClick={() => handleRevoke(v)}
+          className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-medium rounded-lg hover:bg-red-100">
+          Revoke
+        </button>
+      ),
+    },
+  ]
+
+  // ── BULK PAYMENTS TAB ──
+  const [approvedDisbs, setApprovedDisbs] = useState([])
+  const [selectedDisbIds, setSelectedDisbIds] = useState([])
+  const [batches, setBatches] = useState([])
+  const [batchForm, setBatchForm] = useState({
+    name: '', scheduled_date: new Date().toISOString().slice(0, 10), payment_method: '',
+  })
+  const [creatingBatch, setCreatingBatch] = useState(false)
+  const [executingId, setExecutingId] = useState(null)
+
+  const loadApprovedDisbs = useCallback(async () => {
+    try {
+      const res = await lettingsAPI.disbursements.list({ status: 'approved' })
+      setApprovedDisbs(Array.isArray(res.data) ? res.data : res.data?.results ?? [])
+    } catch {
+      toast.toast('Failed to load approved disbursements', 'error')
+    }
+  }, [])
+
+  const loadBatches = useCallback(async () => {
+    try {
+      const res = await lettingsAPI.bulkPayments.list()
+      setBatches(Array.isArray(res.data) ? res.data : res.data?.results ?? [])
+    } catch {
+      toast.toast('Failed to load bulk payment batches', 'error')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'bulk') { loadApprovedDisbs(); loadBatches() }
+  }, [activeTab, loadApprovedDisbs, loadBatches])
+
+  const toggleDisb = (id) => {
+    setSelectedDisbIds((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id])
+  }
+
+  const selectedTotal = approvedDisbs
+    .filter((d) => selectedDisbIds.includes(d.id))
+    .reduce((sum, d) => sum + Number(d.net_to_landlord_usd ?? 0), 0)
+
+  const handleCreateBatch = async (e) => {
+    e.preventDefault()
+    if (selectedDisbIds.length === 0) { toast.toast('Select at least one disbursement', 'warning'); return }
+    setCreatingBatch(true)
+    try {
+      const isFuture = batchForm.scheduled_date > new Date().toISOString().slice(0, 10)
+      await lettingsAPI.bulkPayments.create({ ...batchForm, disbursement_ids: selectedDisbIds })
+      toast.toast(isFuture ? 'Batch scheduled' : 'Batch created — ready to execute', 'success')
+      setSelectedDisbIds([])
+      setBatchForm({ name: '', scheduled_date: new Date().toISOString().slice(0, 10), payment_method: '' })
+      loadBatches()
+      loadApprovedDisbs()
+    } catch (err) {
+      toast.toast(err?.response?.data?.error ?? 'Failed to create batch', 'error')
+    } finally {
+      setCreatingBatch(false)
+    }
+  }
+
+  const handleExecuteBatch = async (id) => {
+    setExecutingId(id)
+    try {
+      const res = await lettingsAPI.bulkPayments.execute(id)
+      toast.toast(`Executed: ${res.data.paid_count} paid, ${res.data.failed_count} failed`, 'success')
+      loadBatches()
+      loadApprovedDisbs()
+    } catch (err) {
+      toast.toast(err?.response?.data?.error ?? 'Failed to execute batch', 'error')
+    } finally {
+      setExecutingId(null)
+    }
+  }
+
+  const handleCancelBatch = async (id) => {
+    if (!window.confirm('Cancel this batch?')) return
+    try {
+      await lettingsAPI.bulkPayments.cancel(id)
+      toast.toast('Batch cancelled', 'success')
+      loadBatches()
+    } catch (err) {
+      toast.toast(err?.response?.data?.error ?? 'Failed to cancel batch', 'error')
+    }
+  }
+
+  const batchColumns = [
+    { key: 'name', label: 'Batch' },
+    { key: 'scheduled_date', label: 'Scheduled Date' },
+    { key: 'item_count', label: 'Items' },
+    { key: 'total_amount_usd', label: 'Total', render: (v) => `$${Number(v ?? 0).toLocaleString()}` },
+    { key: 'status', label: 'Status', render: (v) => <Badge value={v} /> },
+    {
+      key: 'actions', label: '',
+      render: (_, row) => (
+        <div className="flex gap-2">
+          {['draft', 'scheduled'].includes(row.status) && (
+            <button onClick={() => handleExecuteBatch(row.id)} disabled={executingId === row.id}
+              className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50">
+              {executingId === row.id ? 'Executing…' : 'Execute Now'}
+            </button>
+          )}
+          {['draft', 'scheduled'].includes(row.status) && (
+            <button onClick={() => handleCancelBatch(row.id)}
+              className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-medium rounded-lg hover:bg-red-100">
+              Cancel
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   // ── ANNUAL STATEMENT TAB ──
   const [annualOwner, setAnnualOwner] = useState('')
   const [annualYear, setAnnualYear] = useState(currentYear)
@@ -220,6 +406,8 @@ export default function LandlordPortalPage() {
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
         {[
           { key: 'disbursements', label: 'Monthly Disbursements' },
+          { key: 'bulk', label: 'Bulk Payments' },
+          { key: 'contractors', label: 'Contractors' },
           { key: 'annual', label: 'Annual Statement' },
           { key: 'sqm', label: 'Rent per SqM' },
         ].map(t => (
@@ -277,6 +465,118 @@ export default function LandlordPortalPage() {
               <h2 className="font-semibold text-slate-800">Disbursements</h2>
             </div>
             <Table columns={disbColumns} data={disbursements} loading={disbLoading} emptyMessage="No disbursements found" />
+          </div>
+        </div>
+      )}
+
+      {/* ── BULK PAYMENTS ── */}
+      {activeTab === 'bulk' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <h2 className="font-semibold text-slate-800 mb-3">1. Select Approved Disbursements to Pay</h2>
+            <div className="max-h-64 overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-50">
+              {approvedDisbs.length === 0 && (
+                <p className="p-4 text-sm text-slate-400">No approved disbursements awaiting payment.</p>
+              )}
+              {approvedDisbs.map((d) => (
+                <label key={d.id} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" checked={selectedDisbIds.includes(d.id)} onChange={() => toggleDisb(d.id)} />
+                  <span className="flex-1">
+                    {d.property_name ?? d.property} — {MONTHS[(d.period_month ?? 1) - 1]} {d.period_year}
+                    <span className="text-slate-400"> ({d.owner_name})</span>
+                  </span>
+                  <span className="font-semibold text-green-700">${Number(d.net_to_landlord_usd ?? 0).toLocaleString()}</span>
+                </label>
+              ))}
+            </div>
+
+            <form onSubmit={handleCreateBatch} className="flex flex-wrap gap-3 items-end mt-4 pt-4 border-t border-slate-100">
+              <div>
+                <label className={labelCls}>Batch Name</label>
+                <input type="text" className={inputCls} value={batchForm.name}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. October Landlord Payout" />
+              </div>
+              <div>
+                <label className={labelCls}>Execute On</label>
+                <input type="date" className={inputCls} required value={batchForm.scheduled_date}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, scheduled_date: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Payment Method</label>
+                <input type="text" className={inputCls} value={batchForm.payment_method}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, payment_method: e.target.value }))}
+                  placeholder="e.g. bank_transfer" />
+              </div>
+              <div className="text-sm text-slate-600">
+                Selected: <span className="font-semibold">{selectedDisbIds.length}</span> · Total:{' '}
+                <span className="font-bold text-green-700">${selectedTotal.toLocaleString()}</span>
+              </div>
+              <button type="submit" disabled={creatingBatch}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {creatingBatch ? 'Creating…' : batchForm.scheduled_date > new Date().toISOString().slice(0, 10) ? 'Schedule Batch' : 'Create Batch'}
+              </button>
+            </form>
+            <p className="text-xs text-slate-400 mt-2">
+              A future date schedules the batch — it runs automatically when the scheduler task reaches that date.
+              Today's date executes immediately once you click "Execute Now" below.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h2 className="font-semibold text-slate-800">2. Batches</h2>
+            </div>
+            <Table columns={batchColumns} data={batches} loading={false} emptyMessage="No bulk payment batches yet" />
+          </div>
+        </div>
+      )}
+
+      {/* ── CONTRACTORS ── */}
+      {activeTab === 'contractors' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h2 className="font-semibold text-slate-800">My Approved Contractors</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Contractors you've approved to work on your properties.</p>
+            </div>
+            <Table columns={approvalColumns} data={myApprovals} loading={false} emptyMessage="You haven't approved any contractors yet." />
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+              <div>
+                <h2 className="font-semibold text-slate-800">Vendor Directory</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Approve a contractor for a specific property, or leave blank to approve for all your properties.</p>
+              </div>
+              <div>
+                <label className={labelCls}>Approve for Property</label>
+                <select className={inputCls} value={contractorPropFilter}
+                  onChange={(e) => setContractorPropFilter(e.target.value)}>
+                  <option value="">All My Properties</option>
+                  {properties.map((p) => <option key={p.id} value={p.id}>{p.name ?? p.address}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {availableVendors.length === 0 && (
+                <p className="text-sm text-slate-400 col-span-full">No unapproved contractors available in the directory.</p>
+              )}
+              {availableVendors.map((v) => (
+                <div key={v.id} className="border border-slate-100 rounded-xl p-4 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-800">{v.name}</span>
+                    <Badge value={v.category} />
+                  </div>
+                  <p className="text-xs text-slate-500">{v.phone}{v.email ? ` · ${v.email}` : ''}</p>
+                  {v.rating > 0 && <p className="text-xs text-amber-500">★ {v.rating}</p>}
+                  <button onClick={() => handleApprove(v.id)} disabled={approving === v.id}
+                    className="mt-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                    {approving === v.id ? 'Approving…' : 'Approve Contractor'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

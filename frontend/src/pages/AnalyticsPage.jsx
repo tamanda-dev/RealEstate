@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { propertiesAPI } from '../services/api'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  Line, PieChart, Pie, Cell, AreaChart, Area,
 } from 'recharts'
-import { TrendingUp, Building2, DollarSign, BarChart2, Users, ArrowUp, ArrowDown } from 'lucide-react'
+import { TrendingUp, DollarSign, BarChart2, Users, ArrowUp, ArrowDown } from 'lucide-react'
 
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16']
 

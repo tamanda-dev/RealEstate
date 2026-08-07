@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, Copy, Printer, CheckCircle2, DollarSign, TrendingUp, BarChart2 } from 'lucide-react'
+import { Plus, Search, Copy, Printer, DollarSign, TrendingUp, BarChart2 } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
@@ -9,8 +9,6 @@ import { valuationExtAPI, propertiesAPI, valuationAPI } from '../services/api'
 
 const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500'
 const labelCls = 'block text-xs font-semibold text-slate-600 mb-1'
-const halfInputCls = 'border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full'
-
 const PROPERTY_TYPES = ['Residential', 'Commercial', 'Industrial', 'Land', 'Mixed Use']
 
 export default function ValuationWorkbenchPage() {

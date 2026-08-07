@@ -81,6 +81,33 @@ class NotificationViewSet(viewsets.ModelViewSet):
                     )
                     created += 1
 
+        # Lease Diary: rent reviews due soon
+        reviewable_leases = Lease.objects.filter(
+            status='active', next_rent_review_date__isnull=False, next_rent_review_date__lte=future_60,
+        ).select_related('tenant', 'property')
+
+        for lease in reviewable_leases:
+            days_left = (lease.next_rent_review_date - today).days
+            if days_left > lease.rent_review_reminder_days:
+                continue
+            priority = 'urgent' if days_left <= 7 else 'high'
+            msg = (
+                f"Rent review for {lease.property.name} (currently ${lease.monthly_rent}) "
+                f"is due {'in ' + str(days_left) + ' days' if days_left >= 0 else str(-days_left) + ' days overdue'} "
+                f"({lease.next_rent_review_date})."
+            )
+            existing = Notification.objects.filter(
+                notification_type='rent_review_due', related_object_id=lease.pk, is_read=False,
+            )
+            if not existing.exists():
+                for user in managers:
+                    Notification.objects.create(
+                        user=user, notification_type='rent_review_due', priority=priority,
+                        title=f'Rent Review Due — {lease.property.name}',
+                        message=msg, link='/leases', related_object_id=lease.pk,
+                    )
+                    created += 1
+
         # Overdue invoices
         from rent.models import Invoice
         overdue_invoices = Invoice.objects.filter(

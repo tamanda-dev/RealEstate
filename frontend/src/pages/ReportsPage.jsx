@@ -10,10 +10,10 @@ import { reportsAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import {
   TrendingDown, TrendingUp, DollarSign, PieChart as PieIcon,
-  BarChart2, Users, Droplets, Package, Filter
+  Users, Droplets, Package, Filter
 } from 'lucide-react'
 
-const TABS = ['Aging Report', 'P&L Report', 'Agent Performance', 'Cash Flow Forecast', 'Inventory']
+const TABS = ['Aging Report', 'P&L Report', 'Agent Performance', 'Cash Flow Forecast', 'Inventory', 'Rent Roll']
 
 const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899']
 
@@ -54,6 +54,10 @@ export default function ReportsPage() {
   // Inventory
   const [inventory, setInventory] = useState(null)
   const [inventoryLoading, setInventoryLoading] = useState(false)
+
+  // Rent Roll
+  const [rentRoll, setRentRoll] = useState(null)
+  const [rentRollLoading, setRentRollLoading] = useState(false)
 
   const loadAging = useCallback(async () => {
     setAgingLoading(true)
@@ -121,16 +125,40 @@ export default function ReportsPage() {
     }
   }, [toast])
 
+  const loadRentRoll = useCallback(async () => {
+    setRentRollLoading(true)
+    try {
+      const { data } = await reportsAPI.rentRoll()
+      setRentRoll(data)
+    } catch {
+      toast('Failed to load rent roll', 'error')
+    } finally {
+      setRentRollLoading(false)
+    }
+  }, [toast])
+
   useEffect(() => {
     if (activeTab === 'Aging Report') loadAging()
     if (activeTab === 'P&L Report') loadPl()
     if (activeTab === 'Agent Performance') loadAgentPerf()
     if (activeTab === 'Cash Flow Forecast') loadCashFlow()
     if (activeTab === 'Inventory') loadInventory()
-  }, [activeTab, loadAging, loadPl, loadAgentPerf, loadCashFlow, loadInventory])
+    if (activeTab === 'Rent Roll') loadRentRoll()
+  }, [activeTab, loadAging, loadPl, loadAgentPerf, loadCashFlow, loadInventory, loadRentRoll])
+
+  const rentRollColumns = [
+    { key: 'property_name', label: 'Property', render: (v) => <span className="font-medium">{v}</span> },
+    { key: 'unit_number', label: 'Unit' },
+    { key: 'is_occupied', label: 'Status', render: (v) => <Badge value={v ? 'occupied' : 'vacant'} /> },
+    { key: 'tenant_name', label: 'Tenant', render: (v) => v ?? '—' },
+    { key: 'lease_end', label: 'Lease End', render: (v) => v ?? '—' },
+    { key: 'monthly_rent', label: 'Monthly Rent', render: (v) => `$${fmt(v, 2)}` },
+    { key: 'arrears', label: 'Arrears', render: (v) => v > 0 ? <span className="text-red-600 font-semibold">${fmt(v, 2)}</span> : '—' },
+    { key: 'days_vacant', label: 'Days Vacant', render: (v) => v != null ? <span className="text-amber-600 font-semibold">{v}</span> : '—' },
+  ]
 
   const agentColumns = [
-    { key: 'agent_name', label: 'Agent', render: (v, row) => (
+    { key: 'agent_name', label: 'Agent', render: (v) => (
       <div className="flex items-center gap-2">
         <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold">
           {(v ?? '?')[0].toUpperCase()}
@@ -399,6 +427,37 @@ export default function ReportsPage() {
             </>
           ) : (
             <div className="text-center py-16 text-slate-400">No inventory data available</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'Rent Roll' && (
+        <div className="space-y-4">
+          {rentRollLoading ? (
+            <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+          ) : rentRoll ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <StatCard icon={Package} label="Total Units" value={rentRoll.summary?.total_units ?? 0} color="blue" />
+                <StatCard icon={TrendingUp} label="Occupancy Rate" value={pct(rentRoll.summary?.occupancy_rate)} color="green" />
+                <StatCard icon={Droplets} label="Vacancy Loss / mo" value={`$${fmt(rentRoll.summary?.vacancy_loss)}`} color="yellow" />
+                <StatCard icon={DollarSign} label="Total Arrears" value={`$${fmt(rentRoll.summary?.total_arrears)}`} color="red" />
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <Table columns={rentRollColumns} data={rentRoll.rows ?? []} loading={false} emptyMessage="No rent roll data" />
+                {rentRoll.summary && (
+                  <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-8 text-sm flex-wrap">
+                    <span className="font-bold text-slate-700">TOTALS</span>
+                    <span className="text-green-700">Occupied: <strong>{rentRoll.summary.occupied}</strong></span>
+                    <span className="text-amber-600">Vacant: <strong>{rentRoll.summary.vacant}</strong></span>
+                    <span>Potential Rent: <strong>${fmt(rentRoll.summary.total_potential_rent)}/mo</strong></span>
+                    <span>Actual Rent: <strong>${fmt(rentRoll.summary.total_actual_rent)}/mo</strong></span>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-16 text-slate-400">No rent roll data available</div>
           )}
         </div>
       )}

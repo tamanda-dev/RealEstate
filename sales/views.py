@@ -36,11 +36,46 @@ class ListingViewSet(viewsets.ModelViewSet):
 
 
 class ContactViewSet(viewsets.ModelViewSet):
-    queryset = Contact.objects.select_related('agent')
+    queryset = Contact.objects.select_related('agent', 'user')
     serializer_class = ContactSerializer
     filterset_fields = ['contact_type', 'status', 'agent']
     search_fields = ['first_name', 'last_name', 'email', 'phone']
     ordering_fields = ['created_at', 'last_name']
+
+    @action(detail=True, methods=['post'], url_path='link-user')
+    def link_user(self, request, pk=None):
+        """Identity chain fix: links this Contact to the platform User account for the same
+        person (e.g. once a walk-in buyer registers on the buyer portal), so their CRM
+        history, KYC profile, and portal activity are recognized as one person instead of
+        living in two disconnected records. Pass user_id explicitly, or omit it to
+        auto-match by email."""
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        contact = self.get_object()
+
+        user_id = request.data.get('user_id')
+        if user_id:
+            try:
+                user = User.objects.get(pk=user_id)
+            except User.DoesNotExist:
+                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        elif contact.email:
+            user = User.objects.filter(email__iexact=contact.email).first()
+            if not user:
+                return Response({'error': f'No user account found matching email {contact.email}. '
+                                          f'Pass user_id explicitly instead.'},
+                                 status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({'error': 'Contact has no email to auto-match; pass user_id explicitly.'},
+                             status=status.HTTP_400_BAD_REQUEST)
+
+        if hasattr(user, 'sales_contact') and user.sales_contact.pk != contact.pk:
+            return Response({'error': f'{user.username} is already linked to a different contact.'},
+                             status=status.HTTP_400_BAD_REQUEST)
+
+        contact.user = user
+        contact.save(update_fields=['user'])
+        return Response(ContactSerializer(contact).data)
 
 
 class OfferViewSet(viewsets.ModelViewSet):
@@ -91,3 +126,17 @@ class TransactionViewSet(viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
     filterset_fields = ['listing']
     ordering_fields = ['closing_date', 'sale_price']
+
+    def perform_create(self, serializer):
+        txn = serializer.save()
+        # AML transaction monitoring — property sales are the highest-value, highest-risk
+        # money movement in the system, so always screen the buyer on closing.
+        buyer = txn.accepted_offer.buyer if txn.accepted_offer else None
+        if buyer:
+            from aml.monitoring import screen_transaction, get_or_create_profile_for_contact
+            screen_transaction(
+                subject=get_or_create_profile_for_contact(buyer),
+                amount=txn.sale_price, currency='USD', payment_method='',
+                transaction_date=txn.closing_date, source_type='property_sale', source_id=txn.pk,
+                description=f'Property sale — {txn.listing.property.name if txn.listing else ""}',
+            )

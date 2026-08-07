@@ -42,6 +42,12 @@ class Lead(models.Model):
     deal_type = models.CharField(max_length=10, choices=DEAL_TYPE_CHOICES, default='sale')
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                     null=True, blank=True, related_name='assigned_leads')
+    contact = models.ForeignKey('sales.Contact', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='source_leads',
+                                 help_text='Set once this lead is converted into (or matched against) a '
+                                           'sales Contact, so the same person is never re-typed from '
+                                           'scratch — multiple leads (e.g. repeat inquiries) can point '
+                                           'at the same contact')
     property_interest = models.ManyToManyField('properties.Property', blank=True,
                                                 related_name='interested_leads')
     preferred_location = models.CharField(max_length=200, blank=True)

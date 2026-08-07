@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ClipboardCheck, AlertTriangle, CheckCircle2, Clock, CalendarDays,
-  Plus, CheckSquare, Square, X
+  Plus, CheckSquare, Square
 } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
@@ -79,6 +79,16 @@ export default function InspectionsPage() {
   const [completeForm, setCompleteForm] = useState(EMPTY_COMPLETE)
   const [completing, setCompleting] = useState(false)
 
+  // Digital inspection checklist (automated scoring)
+  const [checklistItems, setChecklistItems] = useState([])
+  const [checklistScore, setChecklistScore] = useState(null)
+  const [newItem, setNewItem] = useState({ category: 'other', item_name: '', condition: 'good', requires_action: false })
+  const [addingItem, setAddingItem] = useState(false)
+
+  // Report modal
+  const [reportModal, setReportModal] = useState(false)
+  const [reportData, setReportData] = useState(null)
+
   // Schedule modal
   const [scheduleModal, setScheduleModal] = useState(false)
   const [scheduleForm, setScheduleForm] = useState(EMPTY_SCHEDULE)
@@ -109,7 +119,25 @@ export default function InspectionsPage() {
   const openComplete = (inspection) => {
     setSelectedInspection(inspection)
     setCompleteForm({ ...EMPTY_COMPLETE, actual_date: new Date().toISOString().slice(0, 10) })
+    setChecklistItems(inspection.checklist_items ?? [])
+    setChecklistScore(inspection.condition_score ?? null)
+    setNewItem({ category: 'other', item_name: '', condition: 'good', requires_action: false })
     setCompleteModal(true)
+  }
+
+  const handleAddChecklistItem = async () => {
+    if (!newItem.item_name.trim()) { toast.toast('Enter an item name', 'warning'); return }
+    setAddingItem(true)
+    try {
+      const { data } = await lettingsAPI.inspections.addChecklistItem(selectedInspection.id, newItem)
+      setChecklistItems(data.checklist_items ?? [])
+      setChecklistScore(data.condition_score ?? null)
+      setNewItem({ category: 'other', item_name: '', condition: 'good', requires_action: false })
+    } catch {
+      toast.toast('Failed to add checklist item', 'error')
+    } finally {
+      setAddingItem(false)
+    }
   }
 
   const handleComplete = async (e) => {
@@ -124,6 +152,16 @@ export default function InspectionsPage() {
       toast.toast('Failed to complete inspection', 'error')
     } finally {
       setCompleting(false)
+    }
+  }
+
+  const openReport = async (inspection) => {
+    try {
+      const { data } = await lettingsAPI.inspections.generateReport(inspection.id)
+      setReportData(data)
+      setReportModal(true)
+    } catch {
+      toast.toast('Failed to generate report', 'error')
     }
   }
 
@@ -182,8 +220,18 @@ export default function InspectionsPage() {
     { key: 'scheduled_date', label: 'Scheduled', render: (v) => v ? new Date(v).toLocaleDateString() : '-' },
     { key: 'actual_date', label: 'Completed', render: (v) => v ? new Date(v).toLocaleDateString() : '-' },
     { key: 'overall_condition', label: 'Condition', render: (v) => <Badge value={v} /> },
+    { key: 'condition_score', label: 'Score', render: (v) => v != null ? <span className="font-semibold">{v}/100</span> : '-' },
     { key: 'inspector', label: 'Inspector', render: (v) => v ?? '-' },
     { key: 'action_required', label: 'Action Required', render: (v) => v ? <span className="text-red-600 font-semibold text-xs">YES</span> : <span className="text-green-600 text-xs">No</span> },
+    {
+      key: 'actions', label: '',
+      render: (_, row) => (
+        <button onClick={() => openReport(row)}
+          className="px-3 py-1.5 bg-slate-800 text-white text-xs font-medium rounded-lg hover:bg-slate-900">
+          View Report
+        </button>
+      ),
+    },
   ]
 
   const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -265,7 +313,47 @@ export default function InspectionsPage() {
 
       {/* Complete Inspection Modal */}
       {completeModal && (
-        <Modal open={true} onClose={() => setCompleteModal(false)} title="Complete Inspection" size="sm">
+        <Modal open={true} onClose={() => setCompleteModal(false)} title="Complete Inspection" size="md">
+          <div className="mb-5 border border-slate-200 rounded-xl p-4 bg-slate-50">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">Digital Inspection Checklist</h3>
+              {checklistScore != null && (
+                <span className="text-sm font-bold text-blue-700">Automated Score: {checklistScore}/100</span>
+              )}
+            </div>
+            {checklistItems.length > 0 && (
+              <div className="space-y-1.5 mb-3 max-h-32 overflow-y-auto">
+                {checklistItems.map((it) => (
+                  <div key={it.id} className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-1.5">
+                    <span className="capitalize text-slate-600">{it.category.replace('_', ' ')}: <span className="font-medium text-slate-800">{it.item_name}</span></span>
+                    <Badge value={it.condition} />
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 items-end">
+              <select className={`${inputCls} !w-auto`} value={newItem.category}
+                onChange={(e) => setNewItem((f) => ({ ...f, category: e.target.value }))}>
+                {['structural','roofing','electrical','plumbing','hvac','interior','exterior','safety','appliances','grounds','other'].map((c) => (
+                  <option key={c} value={c}>{c.replace('_', ' ')}</option>
+                ))}
+              </select>
+              <input type="text" placeholder="Item name (e.g. Kitchen sink)" className={`${inputCls} !w-40`}
+                value={newItem.item_name} onChange={(e) => setNewItem((f) => ({ ...f, item_name: e.target.value }))} />
+              <select className={`${inputCls} !w-auto`} value={newItem.condition}
+                onChange={(e) => setNewItem((f) => ({ ...f, condition: e.target.value }))}>
+                {['excellent', 'good', 'fair', 'poor', 'na'].map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <button type="button" onClick={handleAddChecklistItem} disabled={addingItem}
+                className="px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {addingItem ? 'Adding…' : 'Add Item'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">
+              The overall condition and score below are computed automatically once you add checklist items.
+            </p>
+          </div>
+
           <form onSubmit={handleComplete} className="space-y-4">
             <div>
               <label className={labelCls}>Actual Date</label>
@@ -273,7 +361,7 @@ export default function InspectionsPage() {
                 onChange={e => setCompleteForm(f => ({ ...f, actual_date: e.target.value }))} required />
             </div>
             <div>
-              <label className={labelCls}>Overall Condition</label>
+              <label className={labelCls}>Overall Condition {checklistScore != null && <span className="text-slate-400 font-normal">(auto-computed — used instead of this if checklist has items)</span>}</label>
               <select className={inputCls} value={completeForm.overall_condition}
                 onChange={e => setCompleteForm(f => ({ ...f, overall_condition: e.target.value }))}>
                 {['excellent', 'good', 'fair', 'poor'].map(c => (
@@ -377,6 +465,59 @@ export default function InspectionsPage() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* Inspection Report Modal */}
+      {reportModal && reportData && (
+        <Modal open={true} onClose={() => setReportModal(false)} title="Inspection Report" size="md">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-800">{reportData.property_name}</p>
+                <p className="text-xs text-slate-400">Generated {reportData.generated_at}</p>
+              </div>
+              <div className="text-right">
+                {reportData.condition_score != null && (
+                  <p className="text-2xl font-bold text-blue-700">{reportData.condition_score}/100</p>
+                )}
+                <Badge value={reportData.overall_condition} />
+              </div>
+            </div>
+
+            {Object.keys(reportData.checklist_by_category).length === 0 && (
+              <p className="text-sm text-slate-400">No digital checklist was recorded for this inspection.</p>
+            )}
+            {Object.entries(reportData.checklist_by_category).map(([category, items]) => (
+              <div key={category}>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{category.replace('_', ' ')}</h4>
+                <div className="space-y-1">
+                  {items.map((it) => (
+                    <div key={it.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-1.5">
+                      <span>{it.item_name}{it.notes ? <span className="text-slate-400"> — {it.notes}</span> : null}</span>
+                      <Badge value={it.condition} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {reportData.action_items.length > 0 && (
+              <div className="border-t border-slate-100 pt-3">
+                <h4 className="text-xs font-bold text-red-600 uppercase tracking-wide mb-1.5">Action Required</h4>
+                <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
+                  {reportData.action_items.map((it) => <li key={it.id}>{it.item_name} ({it.category.replace('_', ' ')})</li>)}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setReportModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Close</button>
+              <button onClick={() => window.print()}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Print</button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

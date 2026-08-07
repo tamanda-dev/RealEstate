@@ -1,10 +1,10 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Sum
-from .models import Vendor, WorkOrder, MaintenanceExpense, PreventiveSchedule
+from django.db.models import Sum, Q
+from .models import Vendor, WorkOrder, MaintenanceExpense, PreventiveSchedule, ApprovedContractor
 from .serializers import (VendorSerializer, WorkOrderSerializer, MaintenanceExpenseSerializer,
-                           PreventiveScheduleSerializer)
+                           PreventiveScheduleSerializer, ApprovedContractorSerializer)
 
 
 class PreventiveScheduleViewSet(viewsets.ModelViewSet):
@@ -54,6 +54,35 @@ class VendorViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'rating']
 
 
+class ApprovedContractorViewSet(viewsets.ModelViewSet):
+    """Contractor Management: lets a landlord/owner curate which Vendors are approved to
+    work on their properties. Landlords only ever see/manage their own approvals; staff
+    (admin/property_manager/manager) can see and manage approvals for any landlord."""
+    serializer_class = ApprovedContractorSerializer
+    filterset_fields = ['vendor', 'property', 'is_active']
+
+    def get_queryset(self):
+        qs = ApprovedContractor.objects.select_related('vendor', 'property', 'landlord')
+        user = self.request.user
+        if user.role in ('admin', 'property_manager', 'manager'):
+            landlord_id = self.request.query_params.get('landlord')
+            return qs.filter(landlord_id=landlord_id) if landlord_id else qs
+        return qs.filter(landlord=user)
+
+    def perform_create(self, serializer):
+        serializer.save(landlord=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def available_vendors(self, request):
+        """Active vendors not yet approved by this landlord for the given property (or at all)."""
+        property_id = request.query_params.get('property')
+        approved_vendor_ids = ApprovedContractor.objects.filter(
+            landlord=request.user, is_active=True
+        ).filter(Q(property_id=property_id) | Q(property__isnull=True)).values_list('vendor_id', flat=True)
+        vendors = Vendor.objects.filter(is_active=True).exclude(pk__in=approved_vendor_ids)
+        return Response(VendorSerializer(vendors, many=True).data)
+
+
 class WorkOrderViewSet(viewsets.ModelViewSet):
     queryset = WorkOrder.objects.select_related('property', 'vendor', 'reported_by', 'assigned_to')
     serializer_class = WorkOrderSerializer
@@ -71,13 +100,35 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             return Response({'error': 'vendor is required'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             vendor = Vendor.objects.get(pk=vendor_id)
-            work_order.vendor = vendor
-            work_order.scheduled_date = scheduled_date
-            work_order.status = 'assigned'
-            work_order.save()
-            return Response(WorkOrderSerializer(work_order).data)
         except Vendor.DoesNotExist:
             return Response({'error': 'Vendor not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Contractor Management: if the landlord has curated an approved-contractor list for
+        # this property (or a portfolio-wide one), respect it — unless it's an emergency work
+        # order, where blocking dispatch over an approval list would be actively harmful.
+        # Properties/landlords who haven't engaged with the feature at all (no approvals on
+        # file) are unaffected, so this doesn't break existing workflows.
+        owner_id = work_order.property.owner_id
+        landlord_has_curated_list = owner_id and ApprovedContractor.objects.filter(
+            landlord_id=owner_id, is_active=True
+        ).filter(Q(property=work_order.property) | Q(property__isnull=True)).exists()
+
+        if landlord_has_curated_list and work_order.priority != 'emergency':
+            is_approved = ApprovedContractor.objects.filter(
+                vendor=vendor, landlord_id=owner_id, is_active=True
+            ).filter(Q(property=work_order.property) | Q(property__isnull=True)).exists()
+            if not is_approved:
+                return Response(
+                    {'error': f'"{vendor.name}" is not on the landlord\'s approved contractor '
+                              f'list for this property. Ask the landlord to approve them first, '
+                              f'or choose an approved contractor.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+
+        work_order.vendor = vendor
+        work_order.scheduled_date = scheduled_date
+        work_order.status = 'assigned'
+        work_order.save()
+        return Response(WorkOrderSerializer(work_order).data)
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):

@@ -56,6 +56,11 @@ class Contact(models.Model):
 
     agent = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                               null=True, related_name='contacts')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='sales_contact',
+                                 help_text='Set once this contact registers a platform account (buyer/tenant/'
+                                           'landlord login), so KYC, portal activity, and this CRM record '
+                                           'all point at the same person instead of duplicating them')
     contact_type = models.CharField(max_length=10, choices=TYPE_CHOICES)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)

@@ -79,6 +79,13 @@ export const rentAPI = {
     update: (id, data) => api.patch(`/rent/late-fee-rules/${id}/`, data),
     delete: (id) => api.delete(`/rent/late-fee-rules/${id}/`),
   },
+  recurringProfiles: {
+    list: (params) => api.get('/rent/recurring-profiles/', { params }),
+    create: (data) => api.post('/rent/recurring-profiles/', data),
+    update: (id, data) => api.patch(`/rent/recurring-profiles/${id}/`, data),
+    delete: (id) => api.delete(`/rent/recurring-profiles/${id}/`),
+    generateNow: (id) => api.post(`/rent/recurring-profiles/${id}/generate_now/`),
+  },
 }
 
 // ── Leases ────────────────────────────────────────────────────────────────────
@@ -91,6 +98,13 @@ export const leasesAPI = {
   delete: (id) => api.delete(`/leases/${id}/`),
   initiateRenewal: (id, data) => api.post(`/leases/${id}/initiate_renewal/`, data),
   stats: () => api.get('/leases/dashboard_stats/'),
+  conductRentReview: (id, data) => api.post(`/leases/${id}/conduct-rent-review/`, data),
+  diary: (days) => api.get('/leases/lease-diary/', { params: { days } }),
+  renewals: {
+    list: (params) => api.get('/leases/renewals/', { params }),
+    accept: (id) => api.post(`/leases/renewals/${id}/accept/`),
+    decline: (id) => api.post(`/leases/renewals/${id}/decline/`),
+  },
   clauses: {
     list: (params) => api.get('/leases/clauses/', { params }),
     create: (data) => api.post('/leases/clauses/', data),
@@ -123,6 +137,12 @@ export const maintenanceAPI = {
     update: (id, data) => api.patch(`/maintenance/expenses/${id}/`, data),
     delete: (id) => api.delete(`/maintenance/expenses/${id}/`),
   },
+  approvedContractors: {
+    list: (params) => api.get('/maintenance/approved-contractors/', { params }),
+    availableVendors: (params) => api.get('/maintenance/approved-contractors/available_vendors/', { params }),
+    approve: (data) => api.post('/maintenance/approved-contractors/', data),
+    revoke: (id) => api.delete(`/maintenance/approved-contractors/${id}/`),
+  },
 }
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
@@ -140,6 +160,7 @@ export const salesAPI = {
     create: (data) => api.post('/sales/contacts/', data),
     update: (id, data) => api.patch(`/sales/contacts/${id}/`, data),
     delete: (id) => api.delete(`/sales/contacts/${id}/`),
+    linkUser: (id, userId) => api.post(`/sales/contacts/${id}/link-user/`, { user_id: userId }),
   },
   offers: {
     list: (params) => api.get('/sales/offers/', { params }),
@@ -177,6 +198,20 @@ export const accountingAPI = {
     update: (id, data) => api.patch(`/accounting/accounts/${id}/`, data),
     balances: () => api.get('/accounting/accounts/balances/'),
     trustAccounts: () => api.get('/accounting/accounts/trust_accounts/'),
+    cashbook: (id, params) => api.get(`/accounting/accounts/${id}/cashbook/`, { params }),
+  },
+  statementImports: {
+    list: (params) => api.get('/accounting/statement-imports/', { params }),
+    upload: (formData) => api.post('/accounting/statement-imports/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+    autoMatch: (id, windowDays) => api.post(`/accounting/statement-imports/${id}/auto_match/`, { window_days: windowDays }),
+    finalizeReconciliation: (id, statementBalance) => api.post(`/accounting/statement-imports/${id}/finalize-reconciliation/`, { statement_balance: statementBalance }),
+  },
+  statementLines: {
+    list: (params) => api.get('/accounting/statement-lines/', { params }),
+    match: (id, journalLineId) => api.post(`/accounting/statement-lines/${id}/match/`, { journal_line_id: journalLineId }),
+    unmatch: (id) => api.post(`/accounting/statement-lines/${id}/unmatch/`),
   },
   journalEntries: {
     list: (params) => api.get('/accounting/journal-entries/', { params }),
@@ -196,6 +231,11 @@ export const accountingAPI = {
   },
   auditLogs: {
     list: (params) => api.get('/accounting/audit-logs/', { params }),
+  },
+  receipts: {
+    list: (params) => api.get('/accounting/receipts/', { params }),
+    get: (id) => api.get(`/accounting/receipts/${id}/`),
+    create: (data) => api.post('/accounting/receipts/', data),
   },
 }
 
@@ -241,7 +281,7 @@ export const usersAPI = {
 
 // ── CRM ───────────────────────────────────────────────────────────────────────
 export const crmAPI = {
-  leads: { list: (p) => api.get('/crm/leads/', {params:p}), create: (d) => api.post('/crm/leads/', d), update: (id,d) => api.patch(`/crm/leads/${id}/`, d), stats: () => api.get('/crm/leads/dashboard_stats/'), advanceStage: (id) => api.post(`/crm/leads/${id}/advance_stage/`), logInteraction: (id,d) => api.post(`/crm/leads/${id}/log_interaction/`, d) },
+  leads: { list: (p) => api.get('/crm/leads/', {params:p}), create: (d) => api.post('/crm/leads/', d), update: (id,d) => api.patch(`/crm/leads/${id}/`, d), stats: () => api.get('/crm/leads/dashboard_stats/'), advanceStage: (id) => api.post(`/crm/leads/${id}/advance_stage/`), logInteraction: (id,d) => api.post(`/crm/leads/${id}/log_interaction/`, d), convertToContact: (id) => api.post(`/crm/leads/${id}/convert-to-contact/`) },
   opportunities: { kanban: (p) => api.get('/crm/opportunities/kanban/', {params:p}), list: (p) => api.get('/crm/opportunities/', {params:p}), update: (id,d) => api.patch(`/crm/opportunities/${id}/`, d) },
   interactions: { list: (p) => api.get('/crm/interactions/', {params:p}), create: (d) => api.post('/crm/interactions/', d) },
   campaigns: { list: () => api.get('/crm/campaigns/'), create: (d) => api.post('/crm/campaigns/', d), execute: (id) => api.post(`/crm/campaigns/${id}/execute/`) },
@@ -277,6 +317,11 @@ export const reportsAPI = {
   commissionTrends: (year) => api.get('/reports/commission-trends/', {params:{year}}),
   rentPerSqm: (p) => api.get('/reports/rent-per-sqm/', {params:p}),
   marketPriceAnalysis: () => api.get('/reports/market-price-analysis/'),
+  trialBalance: (p) => api.get('/reports/trial-balance/', {params:p}),
+  balanceSheet: (p) => api.get('/reports/balance-sheet/', {params:p}),
+  rentStatement: (p) => api.get('/reports/rent-statement/', {params:p}),
+  distributeRentStatement: (d) => api.post('/reports/rent-statement/distribute/', d),
+  rentRoll: (p) => api.get('/reports/rent-roll/', {params:p}),
 }
 
 // ── Preventive Maintenance ────────────────────────────────────────────────────
@@ -297,6 +342,12 @@ export const lettingsAPI = {
     upcoming: (days) => api.get('/lettings/inspections/upcoming/', {params:{days}}),
     complete: (id,d) => api.post(`/lettings/inspections/${id}/complete/`, d),
     stats: () => api.get('/lettings/inspections/dashboard_stats/'),
+    addChecklistItem: (id,d) => api.post(`/lettings/inspections/${id}/checklist-items/`, d),
+    generateReport: (id) => api.get(`/lettings/inspections/${id}/generate-report/`),
+  },
+  checklistItems: {
+    update: (id,d) => api.patch(`/lettings/inspection-checklist-items/${id}/`, d),
+    delete: (id) => api.delete(`/lettings/inspection-checklist-items/${id}/`),
   },
   disbursements: {
     list: (p) => api.get('/lettings/disbursements/', {params:p}),
@@ -304,6 +355,12 @@ export const lettingsAPI = {
     generate: (d) => api.post('/lettings/disbursements/generate/', d),
     markPaid: (id,d) => api.post(`/lettings/disbursements/${id}/mark_paid/`, d),
     annualStatement: (p) => api.get('/lettings/disbursements/landlord_annual_statement/', {params:p}),
+  },
+  bulkPayments: {
+    list: (p) => api.get('/lettings/bulk-payment-batches/', {params:p}),
+    create: (d) => api.post('/lettings/bulk-payment-batches/', d),
+    execute: (id) => api.post(`/lettings/bulk-payment-batches/${id}/execute/`),
+    cancel: (id) => api.post(`/lettings/bulk-payment-batches/${id}/cancel/`),
   },
 }
 
@@ -353,5 +410,26 @@ export const portalAPI = {
     approve: (id, notes) => api.post(`/portal/discount-approvals/${id}/approve/`, { notes }),
     reject: (id, notes) => api.post(`/portal/discount-approvals/${id}/reject_discount/`, { notes }),
     pendingCount: () => api.get('/portal/discount-approvals/pending_count/'),
+  },
+}
+
+// ── AML / KYC ─────────────────────────────────────────────────────────────────
+export const amlAPI = {
+  kyc: {
+    list: (p) => api.get('/aml/kyc-profiles/', { params: p }),
+    get: (id) => api.get(`/aml/kyc-profiles/${id}/`),
+    create: (d) => api.post('/aml/kyc-profiles/', d),
+    update: (id, d) => api.patch(`/aml/kyc-profiles/${id}/`, d),
+    verify: (id, validYears) => api.post(`/aml/kyc-profiles/${id}/verify/`, { valid_years: validYears }),
+    reject: (id) => api.post(`/aml/kyc-profiles/${id}/reject/`),
+    recalculateRisk: (id) => api.post(`/aml/kyc-profiles/${id}/recalculate-risk/`),
+    stats: () => api.get('/aml/kyc-profiles/dashboard_stats/'),
+  },
+  monitoredTransactions: {
+    list: (p) => api.get('/aml/monitored-transactions/', { params: p }),
+    clear: (id, notes) => api.post(`/aml/monitored-transactions/${id}/clear/`, { notes }),
+    reportToFiu: (id, notes) => api.post(`/aml/monitored-transactions/${id}/report-to-fiu/`, { notes }),
+    goamlExport: (id) => api.get(`/aml/monitored-transactions/${id}/goaml-export/`, { responseType: 'blob' }),
+    stats: () => api.get('/aml/monitored-transactions/dashboard_stats/'),
   },
 }

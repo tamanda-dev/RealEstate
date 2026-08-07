@@ -17,16 +17,21 @@ class LeadSerializer(serializers.ModelSerializer):
     full_name = serializers.ReadOnlyField()
     assigned_to_name = serializers.SerializerMethodField()
     interaction_count = serializers.SerializerMethodField()
+    contact_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
         fields = '__all__'
+        read_only_fields = ['contact']
 
     def get_assigned_to_name(self, obj):
         return obj.assigned_to.get_full_name() if obj.assigned_to else ''
 
     def get_interaction_count(self, obj):
         return obj.interactions.count()
+
+    def get_contact_name(self, obj):
+        return obj.contact.full_name if obj.contact else ''
 
 
 class OpportunitySerializer(serializers.ModelSerializer):

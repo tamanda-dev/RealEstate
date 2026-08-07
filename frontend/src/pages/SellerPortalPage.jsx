@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Building2, DollarSign, Eye, Tag, TrendingUp, BarChart2,
-  CheckCircle, Clock, XCircle, ArrowRight,
+  CheckCircle, ArrowRight,
 } from 'lucide-react'
 import { propertiesAPI, rentAPI, salesAPI } from '../services/api'
 import { portalAPI } from '../services/api'
@@ -25,10 +25,6 @@ export default function SellerPortalPage() {
   const [offers, setOffers] = useState([])
   const [rentStats, setRentStats] = useState(null)
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    loadAll()
-  }, [])
 
   const loadAll = async () => {
     setLoading(true)
@@ -54,6 +50,10 @@ export default function SellerPortalPage() {
       if (rentRes.status === 'fulfilled') setRentStats(rentRes.value.data)
     } catch { } finally { setLoading(false) }
   }
+
+  useEffect(() => {
+    loadAll()
+  }, [])
 
   const handleReviewOffer = async (offer) => {
     try {

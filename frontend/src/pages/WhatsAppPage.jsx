@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   MessageCircle, Send, ArrowUp, ArrowDown, Settings,
-  CheckCheck, Check, AlertCircle, RefreshCw, Plus
+  CheckCheck, AlertCircle, Plus
 } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
@@ -11,13 +11,6 @@ import { whatsappAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 
 const TABS = ['Send Message', 'Message Log', 'Templates', 'Settings']
-
-const STATUS_ICONS = {
-  delivered: CheckCheck,
-  read: CheckCheck,
-  sent: Check,
-  failed: AlertCircle,
-}
 
 export default function WhatsAppPage() {
   const { toast } = useToast()

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Calculator, Send, RefreshCw } from 'lucide-react'
+import { Plus, Calculator, Send } from 'lucide-react'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'

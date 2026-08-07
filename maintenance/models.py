@@ -92,6 +92,29 @@ class Vendor(models.Model):
         return f"{self.name} ({self.category})"
 
 
+class ApprovedContractor(models.Model):
+    """A landlord's approval of a Vendor to work on their property (or all their properties
+    if property is left blank). Lets landlords curate who is allowed to service their portfolio,
+    separate from the staff-managed Vendor directory itself."""
+    landlord = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                  related_name='approved_contractors')
+    vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, related_name='landlord_approvals')
+    property = models.ForeignKey('properties.Property', on_delete=models.CASCADE, null=True, blank=True,
+                                  related_name='approved_contractors',
+                                  help_text='Leave blank to approve for all of this landlord\'s properties')
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    approved_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['landlord', 'vendor', 'property']
+        ordering = ['-approved_at']
+
+    def __str__(self):
+        scope = self.property.name if self.property else 'all properties'
+        return f"{self.landlord} approved {self.vendor.name} for {scope}"
+
+
 class WorkOrder(models.Model):
     PRIORITY_CHOICES = [
         ('low', 'Low'),

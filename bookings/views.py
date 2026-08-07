@@ -96,6 +96,16 @@ class ReservationViewSet(viewsets.ModelViewSet):
         res.payment_method = request.data.get('payment_method', '')
         res.payment_reference = request.data.get('payment_reference', '')
         res.save()
+
+        from accounting.models import Receipt
+        Receipt.objects.create(
+            source_type='reservation_token', source_id=res.pk,
+            payer_name=res.contact.full_name if res.contact else 'Unknown',
+            amount=res.token_amount_usd, currency='USD', payment_method=res.payment_method,
+            reference=res.payment_reference,
+            description=f'Reservation token — {res.reservation_number}',
+            property=res.property, received_date=res.payment_received_date, issued_by=request.user,
+        )
         return Response(ReservationSerializer(res).data)
 
     @action(detail=False, methods=['get'])

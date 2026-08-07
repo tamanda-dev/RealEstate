@@ -44,12 +44,12 @@ class UserViewSet(viewsets.ModelViewSet):
     def me(self, request):
         return Response(UserSerializer(request.user).data)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager()])
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager])
     def tenants(self, request):
         qs = User.objects.filter(role='tenant', is_active=True)
         return Response(UserSerializer(qs, many=True).data)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager()])
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager])
     def by_role(self, request):
         from django.db.models import Count
         breakdown = (
@@ -61,7 +61,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     # ── Write endpoints (admin only) ──────────────────────────────────────────
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly])
     def deactivate(self, request, pk=None):
         user = self.get_object()
         if user == request.user:
@@ -71,14 +71,14 @@ class UserViewSet(viewsets.ModelViewSet):
         user.save(update_fields=['is_active'])
         return Response({'message': f'{user.username} has been deactivated.'})
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly])
     def activate(self, request, pk=None):
         user = self.get_object()
         user.is_active = True
         user.save(update_fields=['is_active'])
         return Response({'message': f'{user.username} has been activated.'})
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly])
     def change_role(self, request, pk=None):
         user = self.get_object()
         new_role = request.data.get('role')
@@ -97,7 +97,7 @@ class UserViewSet(viewsets.ModelViewSet):
             'user': UserSerializer(user).data,
         })
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOnly])
     def reset_password(self, request, pk=None):
         user = self.get_object()
         new_password = request.data.get('new_password', '')
@@ -108,7 +108,7 @@ class UserViewSet(viewsets.ModelViewSet):
         user.save()
         return Response({'message': f'Password for {user.username} has been reset.'})
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager()])
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminOrManager])
     def dashboard_stats(self, request):
         from django.db.models import Count
         total = User.objects.count()

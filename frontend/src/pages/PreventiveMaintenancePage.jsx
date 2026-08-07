@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Shield, AlertTriangle, Clock, CheckCircle, Filter } from 'lucide-react'
+import { Plus, Shield, AlertTriangle, Clock, Filter } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'

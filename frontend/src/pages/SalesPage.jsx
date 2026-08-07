@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, AlertTriangle, Building2, Users, DollarSign } from 'lucide-react'
+import { Plus, AlertTriangle, Building2, DollarSign } from 'lucide-react'
 import { salesAPI } from '../services/api'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
@@ -103,6 +103,16 @@ export default function SalesPage() {
     }
   }
 
+  const handleLinkUser = async (contact) => {
+    try {
+      const { data } = await salesAPI.contacts.linkUser(contact.id)
+      alert(`Linked to platform user "${data.user_username}" — their portal activity and KYC now resolve to this same contact.`)
+      fetchContacts()
+    } catch (err) {
+      alert(err?.response?.data?.error ?? 'No matching platform account found for this contact\'s email.')
+    }
+  }
+
   const handleCalculate = async () => {
     if (!salePrice) return
     setCalculating(true)
@@ -134,6 +144,17 @@ export default function SalesPage() {
     {
       key: 'budget_min', label: 'Budget',
       render: (v, row) => `${fmtCurrency(v)} – ${fmtCurrency(row.budget_max)}`
+    },
+    {
+      key: 'id', label: 'Platform Account',
+      render: (v, row) => row.user_username ? (
+        <span className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded">@{row.user_username}</span>
+      ) : (
+        <button onClick={() => handleLinkUser(row)}
+          className="text-xs px-2 py-1 bg-purple-50 text-purple-700 rounded hover:bg-purple-100">
+          Link User Account
+        </button>
+      )
     },
   ]
 

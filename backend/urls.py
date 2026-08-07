@@ -26,4 +26,5 @@ urlpatterns = [
     path('api/reports/', include('reports.urls')),
     path('api/lettings/', include('lettings.urls')),
     path('api/portal/', include('portal.urls')),
+    path('api/aml/', include('aml.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

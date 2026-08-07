@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { DollarSign, Plus, AlertTriangle, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
-import { rentAPI, propertiesAPI, usersAPI } from '../services/api'
+import { rentAPI, propertiesAPI, usersAPI, leasesAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import StatCard from '../components/StatCard'
 import Table from '../components/Table'
 
-const TABS = ['Invoices', 'Payments', 'Late Fee Rules']
+const TABS = ['Invoices', 'Payments', 'Late Fee Rules', 'Recurring Invoices']
 
 const PAYMENT_METHODS = [
   { value: 'bank_transfer', label: 'Bank Transfer / RTGS' },
@@ -90,10 +90,85 @@ export default function RentPage() {
     } catch {}
   }
 
+  // ── Recurring Invoice Profiles ──────────────────────────────────────────────
+  const [recurringProfiles, setRecurringProfiles] = useState([])
+  const [activeLeases, setActiveLeases] = useState([])
+  const [profileModal, setProfileModal] = useState(false)
+  const [profileForm, setProfileForm] = useState({
+    lease: '', frequency: 'monthly', billing_day: 1, due_in_days: 5,
+    currency: 'USD', auto_generate_disbursement: false,
+    next_generation_date: new Date().toISOString().split('T')[0],
+  })
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [generatingId, setGeneratingId] = useState(null)
+
+  const fetchRecurringProfiles = async () => {
+    try {
+      const { data } = await rentAPI.recurringProfiles.list()
+      setRecurringProfiles(Array.isArray(data) ? data : data.results ?? [])
+    } catch {}
+  }
+
+  const fetchActiveLeases = async () => {
+    try {
+      const { data } = await leasesAPI.list({ status: 'active' })
+      setActiveLeases(Array.isArray(data) ? data : data.results ?? [])
+    } catch {}
+  }
+
+  const handleCreateProfile = async (e) => {
+    e.preventDefault()
+    setSavingProfile(true)
+    try {
+      await rentAPI.recurringProfiles.create(profileForm)
+      toast('Recurring invoice profile created', 'success')
+      setProfileModal(false)
+      fetchRecurringProfiles()
+    } catch (err) {
+      toast(err?.response?.data?.detail ?? 'Failed to create profile', 'error')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  const handleGenerateNow = async (id) => {
+    setGeneratingId(id)
+    try {
+      const { data } = await rentAPI.recurringProfiles.generateNow(id)
+      toast(`Invoice ${data.invoice_number} generated`, 'success')
+      fetchRecurringProfiles()
+    } catch (err) {
+      toast(err?.response?.data?.error ?? 'Failed to generate invoice', 'error')
+    } finally {
+      setGeneratingId(null)
+    }
+  }
+
+  const profileColumns = [
+    { key: 'tenant_name', label: 'Tenant' },
+    { key: 'property_name', label: 'Property' },
+    { key: 'monthly_rent', label: 'Rent', render: (v) => fmtCurrency(v) },
+    { key: 'frequency', label: 'Frequency', render: (v) => <Badge value={v} /> },
+    { key: 'currency', label: 'Currency' },
+    { key: 'next_generation_date', label: 'Next Run' },
+    { key: 'auto_generate_disbursement', label: 'Auto-Distribute', render: (v) => v ? <Badge value="enabled" /> : '—' },
+    { key: 'is_active', label: 'Active', render: (v) => <Badge value={v ? 'active' : 'inactive'} /> },
+    {
+      key: 'id', label: 'Action',
+      render: (v) => (
+        <button onClick={() => handleGenerateNow(v)} disabled={generatingId === v}
+          className="text-xs px-2.5 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+          {generatingId === v ? 'Generating…' : 'Generate Now'}
+        </button>
+      ),
+    },
+  ]
+
   useEffect(() => { fetchData() }, [])
   useEffect(() => {
     if (tab === 'Payments') fetchPayments()
     if (tab === 'Late Fee Rules') fetchRules()
+    if (tab === 'Recurring Invoices') { fetchRecurringProfiles(); fetchActiveLeases() }
   }, [tab])
 
   // ── Create Invoice helpers ─────────────────────────────────────────────────
@@ -223,22 +298,6 @@ export default function RentPage() {
     }
   }
 
-  const handleAddRule = async (e) => {
-    e.preventDefault()
-    setSavingRule(true)
-    try {
-      await rentAPI.lateFeeRules.create(ruleForm)
-      setRuleModal(false)
-      setRuleForm({ name: '', fee_type: 'flat', fee_amount: '', grace_period_days: 5 })
-      toast('Late fee rule created', 'success')
-      fetchRules()
-    } catch (err) {
-      toast(err?.response?.data?.detail || 'Failed to create rule', 'error')
-    } finally {
-      setSavingRule(false)
-    }
-  }
-
   const invoiceColumns = [
     { key: 'invoice_number', label: 'Invoice #', render: (v) => <span className="font-mono text-sm font-medium">{v}</span> },
     { key: 'tenant_name', label: 'Tenant' },
@@ -365,6 +424,18 @@ export default function RentPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {tab === 'Recurring Invoices' && (
+            <div className="p-5">
+              <div className="flex justify-end mb-4">
+                <button onClick={() => setProfileModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
+                  <Plus size={15} /> New Recurring Profile
+                </button>
+              </div>
+              <Table columns={profileColumns} data={recurringProfiles} loading={false}
+                emptyMessage="No recurring invoice profiles configured." />
             </div>
           )}
         </div>
@@ -555,6 +626,79 @@ export default function RentPage() {
             <button type="submit" disabled={savingInv}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
               {savingInv ? 'Creating…' : 'Create Invoice'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Recurring Invoice Profile Modal */}
+      <Modal open={profileModal} onClose={() => setProfileModal(false)} title="New Recurring Invoice Profile" size="sm">
+        <form onSubmit={handleCreateProfile} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Active Lease *</label>
+            <select required value={profileForm.lease}
+              onChange={e => setProfileForm(f => ({ ...f, lease: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">Select lease…</option>
+              {activeLeases.map(l => (
+                <option key={l.id} value={l.id}>
+                  {(l.tenant_name ?? l.tenant)} — {(l.property_name ?? l.property)} (${l.monthly_rent}/mo)
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Frequency</label>
+              <select value={profileForm.frequency}
+                onChange={e => setProfileForm(f => ({ ...f, frequency: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white">
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Billing Currency</label>
+              <select value={profileForm.currency}
+                onChange={e => setProfileForm(f => ({ ...f, currency: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white">
+                <option value="USD">USD</option>
+                <option value="ZiG">ZiG</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Billing Day</label>
+              <input type="number" min={1} max={28} value={profileForm.billing_day}
+                onChange={e => setProfileForm(f => ({ ...f, billing_day: Number(e.target.value) }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Due In (days)</label>
+              <input type="number" min={0} value={profileForm.due_in_days}
+                onChange={e => setProfileForm(f => ({ ...f, due_in_days: Number(e.target.value) }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">First Generation Date</label>
+              <input type="date" required value={profileForm.next_generation_date}
+                onChange={e => setProfileForm(f => ({ ...f, next_generation_date: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="autodist" checked={profileForm.auto_generate_disbursement}
+              onChange={e => setProfileForm(f => ({ ...f, auto_generate_disbursement: e.target.checked }))}
+              className="rounded" />
+            <label htmlFor="autodist" className="text-sm text-slate-700">
+              Auto-distribute to landlord when each invoice is paid in full
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={() => setProfileModal(false)}
+              className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={savingProfile}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
+              {savingProfile ? 'Creating…' : 'Create Profile'}
             </button>
           </div>
         </form>

@@ -104,19 +104,39 @@ class ValuationViewSet(viewsets.ModelViewSet):
         property_id = request.data.get('property_id')
         try:
             from properties.models import Property
+            from lettings.models import PropertyInspection
             prop = Property.objects.get(pk=property_id)
             base = float(prop.current_value or prop.purchase_price or 100000)
             noise = random.uniform(0.95, 1.05)
             estimated = round(base * noise, 2)
+            confidence = round(random.uniform(75, 95), 1)
+
+            # Inspection Engine integration: the most recent scored inspection nudges the
+            # AVM estimate and confidence — a property scoring poorly on its digital
+            # inspection sheet is worth less than raw comparables alone would suggest.
+            notes = 'Automated valuation based on property data and market conditions.'
+            latest_inspection = PropertyInspection.objects.filter(
+                property=prop, status='completed', condition_score__isnull=False
+            ).order_by('-actual_date').first()
+            if latest_inspection:
+                score = float(latest_inspection.condition_score)
+                condition_factor = 0.85 + (score / 100) * 0.15
+                estimated = round(estimated * condition_factor, 2)
+                confidence = min(98, confidence + 5)
+                notes += (f' Adjusted using inspection #{latest_inspection.pk} '
+                          f'(condition score {score}/100, {latest_inspection.overall_condition}).')
+
             low = round(estimated * 0.93, 2)
             high = round(estimated * 1.07, 2)
-            confidence = round(random.uniform(75, 95), 1)
             valuation = Valuation.objects.create(
                 property=prop, performed_by=request.user, method='avm',
                 estimated_value=estimated, low_estimate=low, high_estimate=high,
                 confidence_score=confidence, valuation_date=datetime.date.today(),
-                notes='Automated valuation based on property data and market conditions.',
+                notes=notes,
             )
+            if latest_inspection and not latest_inspection.valuation_id:
+                latest_inspection.valuation = valuation
+                latest_inspection.save(update_fields=['valuation'])
             return Response(ValuationSerializer(valuation).data, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

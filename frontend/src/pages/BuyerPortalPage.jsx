@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import {
   Search, Heart, Eye, Tag, MapPin, Bed, Bath, Square,
-  DollarSign, Plus, Star, CheckCircle, Clock, X, Calendar,
+  CheckCircle, Clock, X, Calendar,
 } from 'lucide-react'
 import { salesAPI, portalAPI, currencyAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
@@ -78,7 +77,6 @@ export default function BuyerPortalPage() {
   const [savedIds, setSavedIds] = useState(new Set())
   const [savedListings, setSavedListings] = useState([])
   const [search, setSearch] = useState('')
-  const [filterType, setFilterType] = useState('')
   const [loadingListings, setLoadingListings] = useState(true)
 
   // Viewings
@@ -88,22 +86,9 @@ export default function BuyerPortalPage() {
 
   // Offers
   const [myOffers, setMyOffers] = useState([])
-  const [showOfferModal, setShowOfferModal] = useState(null)
-  const [offerForm, setOfferForm] = useState({
-    offer_amount_usd: '', is_cash_buyer: false, finance_pre_approved: false,
-    proposed_closing_date: '', conditions: '',
-  })
 
   // Exchange rate
   const [zigRate, setZigRate] = useState(null)
-
-  useEffect(() => {
-    loadListings()
-    loadFavourites()
-    loadViewings()
-    loadMyOffers()
-    currencyAPI.latest().then(({ data }) => setZigRate(data.usd_to_zig)).catch(() => {})
-  }, [])
 
   const loadListings = async () => {
     setLoadingListings(true)
@@ -136,6 +121,14 @@ export default function BuyerPortalPage() {
     } catch { }
   }
 
+  useEffect(() => {
+    loadListings()
+    loadFavourites()
+    loadViewings()
+    loadMyOffers()
+    currencyAPI.latest().then(({ data }) => setZigRate(data.usd_to_zig)).catch(() => {})
+  }, [])
+
   const handleSave = async (listing) => {
     try {
       await portalAPI.savedListings.save(listing.id, '')
@@ -164,17 +157,6 @@ export default function BuyerPortalPage() {
       setViewingForm({ preferred_dates: '', buyer_notes: '' })
       loadViewings()
     } catch { toast('Failed to submit viewing request', 'error') }
-  }
-
-  const submitOffer = async () => {
-    try {
-      await portalAPI.buyerOffers.create({ listing: showOfferModal.id, ...offerForm })
-      toast('Offer submitted successfully!', 'success')
-      setShowOfferModal(null)
-      loadMyOffers()
-    } catch (err) {
-      toast(err?.response?.data?.detail || 'Failed to submit offer', 'error')
-    }
   }
 
   const filteredListings = listings.filter(l => {

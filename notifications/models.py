@@ -12,6 +12,8 @@ class Notification(models.Model):
         ('maintenance_complete', 'Maintenance Complete'),
         ('maintenance_assigned', 'Maintenance Assigned'),
         ('renewal_proposed', 'Renewal Proposed'),
+        ('rent_statement', 'Rent Statement'),
+        ('rent_review_due', 'Rent Review Due'),
         ('system', 'System'),
     ]
     PRIORITY_CHOICES = [

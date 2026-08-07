@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { notificationsAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import {
-  Bell, CheckCheck, RefreshCw, AlertTriangle, Clock, DollarSign,
-  Wrench, FileText, Info, Trash2,
+  Bell, CheckCheck, RefreshCw, DollarSign,
+  Wrench, FileText, Info,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 

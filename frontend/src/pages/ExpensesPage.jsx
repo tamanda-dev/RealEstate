@@ -4,25 +4,19 @@ import StatCard from '../components/StatCard'
 import Modal from '../components/Modal'
 import Badge from '../components/Badge'
 import {
-  DollarSign, Plus, Search, Filter, Download, CheckCircle,
+  DollarSign, Plus, Search, CheckCircle,
   Clock, AlertTriangle, RefreshCw, TrendingDown, BarChart2,
-  FileText, Tag, ChevronDown, X
+  Tag
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  PieChart, Pie, Cell, Legend, ResponsiveContainer
+  PieChart, Pie, Cell, ResponsiveContainer
 } from 'recharts'
 
 const CATEGORY_COLORS = [
   '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
   '#06b6d4','#ec4899','#84cc16','#f97316','#6366f1',
 ]
-
-const STATUS_COLORS = {
-  pending: 'yellow',
-  paid: 'green',
-  cancelled: 'gray',
-}
 
 const TABS = ['All Expenses', 'By Category', 'Monthly Trend', 'Budget vs Actual', 'Categories']
 
@@ -268,7 +262,7 @@ export default function ExpensesPage() {
 /* ─── All Expenses Tab ─── */
 function AllExpensesTab({ expenses, loading, search, setSearch, filterStatus, setFilterStatus,
   filterCategory, setFilterCategory, filterProperty, setFilterProperty,
-  categories, properties, onMarkPaid, onRefresh, fmt }) {
+  categories, properties, onMarkPaid, fmt }) {
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -574,7 +568,7 @@ function BudgetTab({ data, filterProperty, setFilterProperty, filterYear, setFil
 }
 
 /* ─── Categories Tab ─── */
-function CategoriesTab({ categories, onAdd, onRefresh }) {
+function CategoriesTab({ categories, onAdd }) {
   const grouped = categories.reduce((acc, c) => {
     const key = c.category_type_display || c.category_type
     if (!acc[key]) acc[key] = []

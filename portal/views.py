@@ -62,7 +62,7 @@ class ViewingRequestViewSet(viewsets.ModelViewSet):
         agent = listing.listing_agent if listing else None
         serializer.save(buyer=user, agent=agent)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager])
     def schedule(self, request, pk=None):
         viewing = self.get_object()
         viewing.confirmed_datetime = request.data.get('confirmed_datetime')
@@ -113,21 +113,21 @@ class BuyerOfferViewSet(viewsets.ModelViewSet):
         agent = listing.listing_agent if listing else None
         serializer.save(buyer=self.request.user, agent=agent)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager])
     def review(self, request, pk=None):
         offer = self.get_object()
         offer.status = 'under_review'
         offer.save(update_fields=['status'])
         return Response(BuyerOfferSerializer(offer).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager])
     def accept(self, request, pk=None):
         offer = self.get_object()
         offer.status = 'accepted'
         offer.save(update_fields=['status'])
         return Response(BuyerOfferSerializer(offer).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager()])
+    @action(detail=True, methods=['post'], permission_classes=[IsAgentOrManager])
     def reject(self, request, pk=None):
         offer = self.get_object()
         offer.status = 'rejected'
@@ -143,7 +143,7 @@ class AgentKPIViewSet(viewsets.ModelViewSet):
     serializer_class = AgentKPISerializer
     permission_classes = [IsSalesManager]
     filterset_fields = ['agent']
-    ordering_fields = ['-period_end']
+    ordering_fields = ['period_end']
 
     def perform_create(self, serializer):
         serializer.save(recorded_by=self.request.user)
@@ -184,7 +184,7 @@ class DiscountApprovalViewSet(viewsets.ModelViewSet):
         'listing__property', 'requested_by', 'approved_by')
     serializer_class = DiscountApprovalSerializer
     filterset_fields = ['status', 'listing']
-    ordering_fields = ['-created_at']
+    ordering_fields = ['created_at']
 
     def get_permissions(self):
         if self.action in ['approve', 'reject_discount']:

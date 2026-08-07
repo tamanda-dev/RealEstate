@@ -31,6 +31,7 @@ import ValuationWorkbenchPage from './pages/ValuationWorkbenchPage'
 import UserManagementPage from './pages/UserManagementPage'
 import BuyerPortalPage from './pages/BuyerPortalPage'
 import SellerPortalPage from './pages/SellerPortalPage'
+import AMLPage from './pages/AMLPage'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -89,6 +90,7 @@ function AppRoutes() {
       <Route path="/buyer-portal/offers"     element={<ProtectedRoute><BuyerPortalPage /></ProtectedRoute>} />
       <Route path="/seller-portal"  element={<ProtectedRoute><SellerPortalPage /></ProtectedRoute>} />
       <Route path="/seller-portal/offers" element={<ProtectedRoute><SellerPortalPage /></ProtectedRoute>} />
+      <Route path="/aml"            element={<ProtectedRoute><AMLPage /></ProtectedRoute>} />
       <Route path="*"              element={<Navigate to="/" replace />} />
     </Routes>
   )

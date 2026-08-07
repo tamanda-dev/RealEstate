@@ -5,7 +5,7 @@ import {
   BookOpen, Users, LogOut, Menu, Bell, Receipt, TrendingUp,
   Users2, Calculator, CalendarCheck, RefreshCw, PieChart, Shield, FolderOpen, MessageCircle,
   ClipboardCheck, Percent, BookMarked, Home as HomeIcon, UserCog,
-  Heart, Eye, Tag, Star, LayoutDashboard, HandCoins,
+  Heart, Eye, Tag, Star, LayoutDashboard, HandCoins, ShieldAlert,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { notificationsAPI } from '../services/api'
@@ -89,6 +89,7 @@ const navGroups = [
       { to: '/commissions', label: 'Commissions & VAT', icon: Percent, roles: FINANCE },
       { to: '/tenant-ledger', label: 'Ledgers', icon: BookMarked, roles: FINANCE },
       { to: '/landlord-portal', label: 'Landlord Portal', icon: HomeIcon, roles: PROP_MGMT },
+      { to: '/aml', label: 'AML / Compliance', icon: ShieldAlert, roles: ['admin', 'accountant'] },
     ],
   },
   {
@@ -123,30 +124,8 @@ function NavItem({ to, label, icon: Icon, end, onClick }) {
   )
 }
 
-export default function Layout({ children }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
-
-  useEffect(() => {
-    const fetchUnread = async () => {
-      try {
-        const { data } = await notificationsAPI.unreadCount()
-        setUnreadCount(data.count)
-      } catch {}
-    }
-    fetchUnread()
-    const interval = setInterval(fetchUnread, 60000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
-
-  const Sidebar = ({ onNav }) => (
+function Sidebar({ user, onNav, onLogout }) {
+  return (
     <div className="flex flex-col h-full bg-slate-900">
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-slate-700/50">
@@ -200,7 +179,7 @@ export default function Layout({ children }) {
             </p>
             <p className="text-xs text-slate-400 capitalize truncate">{user?.role ?? 'Staff'}</p>
           </div>
-          <button onClick={handleLogout}
+          <button onClick={onLogout}
             className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-700 transition-colors"
             title="Logout">
             <LogOut size={15} />
@@ -209,12 +188,36 @@ export default function Layout({ children }) {
       </div>
     </div>
   )
+}
+
+export default function Layout({ children }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const fetchUnread = async () => {
+      try {
+        const { data } = await notificationsAPI.unreadCount()
+        setUnreadCount(data.count)
+      } catch {}
+    }
+    fetchUnread()
+    const interval = setInterval(fetchUnread, 60000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-60 flex-shrink-0 shadow-xl">
-        <Sidebar onNav={() => {}} />
+        <Sidebar user={user} onNav={() => {}} onLogout={handleLogout} />
       </aside>
 
       {/* Mobile sidebar */}
@@ -222,7 +225,7 @@ export default function Layout({ children }) {
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
           <aside className="relative flex flex-col w-60 h-full shadow-2xl">
-            <Sidebar onNav={() => setSidebarOpen(false)} />
+            <Sidebar user={user} onNav={() => setSidebarOpen(false)} onLogout={handleLogout} />
           </aside>
         </div>
       )}

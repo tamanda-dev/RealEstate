@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Lease, LeaseClause, LeaseRenewal
+from .models import Lease, LeaseClause, LeaseRenewal, RentReviewLog
 
 
 class LeaseClauseSerializer(serializers.ModelSerializer):
@@ -14,13 +14,28 @@ class LeaseRenewalSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class RentReviewLogSerializer(serializers.ModelSerializer):
+    reviewed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RentReviewLog
+        fields = '__all__'
+        read_only_fields = ['reviewed_by']
+
+    def get_reviewed_by_name(self, obj):
+        return obj.reviewed_by.get_full_name() if obj.reviewed_by else ''
+
+
 class LeaseSerializer(serializers.ModelSerializer):
     renewals = LeaseRenewalSerializer(many=True, read_only=True)
+    rent_reviews = RentReviewLogSerializer(many=True, read_only=True)
     tenant_name = serializers.SerializerMethodField()
     property_name = serializers.SerializerMethodField()
     unit_number = serializers.SerializerMethodField()
     days_until_expiry = serializers.SerializerMethodField()
     is_expiring_soon = serializers.SerializerMethodField()
+    days_until_rent_review = serializers.SerializerMethodField()
+    is_rent_review_due_soon = serializers.SerializerMethodField()
 
     class Meta:
         model = Lease
@@ -40,6 +55,12 @@ class LeaseSerializer(serializers.ModelSerializer):
 
     def get_is_expiring_soon(self, obj):
         return obj.is_expiring_soon()
+
+    def get_days_until_rent_review(self, obj):
+        return obj.days_until_rent_review()
+
+    def get_is_rent_review_due_soon(self, obj):
+        return obj.is_rent_review_due_soon()
 
     def validate(self, data):
         start = data.get('start_date') or (self.instance.start_date if self.instance else None)

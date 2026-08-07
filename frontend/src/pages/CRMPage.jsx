@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Users, Plus, ChevronRight, Phone, Mail, Calendar,
+  Users, Plus, ChevronRight, Phone, Mail,
   MessageSquare, Target, TrendingUp, XCircle, Clock,
-  Megaphone, Play, Filter, RefreshCw, User
+  Megaphone, Play, RefreshCw
 } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
-import { crmAPI } from '../services/api'
+import { crmAPI, currencyAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 
 const TABS = ['Leads', 'Pipeline', 'Interactions', 'Campaigns']
@@ -82,11 +82,9 @@ export default function CRMPage() {
   })
 
   useEffect(() => {
-    import('../services/api').then(({ currencyAPI }) => {
-      currencyAPI.latest().then(({ data }) => {
-        if (data?.rate) setRate(parseFloat(data.rate))
-      }).catch(() => {})
-    })
+    currencyAPI.latest().then(({ data }) => {
+      if (data?.rate) setRate(parseFloat(data.rate))
+    }).catch(() => {})
   }, [])
 
   const loadLeads = useCallback(async () => {
@@ -158,6 +156,16 @@ export default function CRMPage() {
       loadLeads()
     } catch {
       toast('Failed to advance stage', 'error')
+    }
+  }
+
+  const handleConvertToContact = async (lead) => {
+    try {
+      await crmAPI.leads.convertToContact(lead.id)
+      toast('Linked to a sales Contact (existing match reused if found)', 'success')
+      loadLeads()
+    } catch {
+      toast('Failed to convert lead to contact', 'error')
     }
   }
 
@@ -234,7 +242,7 @@ export default function CRMPage() {
       v ? <span className="text-sm text-slate-600">{new Date(v).toLocaleDateString()}</span> : <span className="text-slate-400">—</span>
     )},
     { key: 'actions', label: 'Actions', render: (_, row) => (
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button onClick={() => handleAdvanceStage(row)}
           className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 flex items-center gap-1">
           <ChevronRight size={12} /> Advance
@@ -243,6 +251,16 @@ export default function CRMPage() {
           className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100 flex items-center gap-1">
           <MessageSquare size={12} /> Log
         </button>
+        {row.contact ? (
+          <span className="text-xs px-2 py-1 bg-slate-100 text-slate-500 rounded" title={row.contact_name}>
+            Linked to Contact
+          </span>
+        ) : (
+          <button onClick={() => handleConvertToContact(row)}
+            className="text-xs px-2 py-1 bg-purple-50 text-purple-700 rounded hover:bg-purple-100">
+            Convert to Contact
+          </button>
+        )}
       </div>
     )},
   ]

@@ -1,13 +1,19 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from django.db.models import Sum, Count, Avg, F, Q
 import datetime
 import calendar
 
 
+class IsInternalStaff(BasePermission):
+    """Portfolio-wide financial/operational reports are staff-only."""
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_internal_staff)
+
+
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def aging_report(request):
     """Receivables aging: 0-30, 31-60, 61-90, 90+ days overdue."""
     from rent.models import Invoice
@@ -56,7 +62,7 @@ def aging_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def pl_report(request):
     """Profit & Loss by property or portfolio for a given year/month."""
     from rent.models import Invoice
@@ -104,7 +110,7 @@ def pl_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def agent_performance(request):
     """Agent conversion rates, deals closed, pipeline value."""
     from crm.models import Lead, Opportunity
@@ -136,7 +142,7 @@ def agent_performance(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def cash_flow_forecast(request):
     """12-month rolling cash flow based on leases and known expenses."""
     from leases.models import Lease
@@ -177,7 +183,7 @@ def cash_flow_forecast(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def inventory_report(request):
     """Property inventory: occupancy, vacancy, fast/slow movers."""
     from properties.models import Property, Unit
@@ -220,6 +226,9 @@ def tenant_ledger(request):
     tenant_id = request.query_params.get('tenant')
     if not tenant_id:
         return Response({'error': 'tenant param required'}, status=400)
+
+    if not request.user.is_internal_staff and str(request.user.pk) != str(tenant_id):
+        return Response({'error': 'You may only view your own ledger.'}, status=403)
 
     try:
         tenant = User.objects.get(pk=tenant_id)
@@ -268,6 +277,127 @@ def tenant_ledger(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def rent_statement(request):
+    """Rent Statements: a single billing period's statement for a tenant — opening balance
+    carried from everything before the period, line items within it, closing balance."""
+    from rent.models import Invoice, Payment
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+
+    tenant_id = request.query_params.get('tenant')
+    period_start_str = request.query_params.get('period_start')
+    period_end_str = request.query_params.get('period_end')
+    if not tenant_id or not period_start_str or not period_end_str:
+        return Response({'error': 'tenant, period_start and period_end are required'}, status=400)
+
+    if not request.user.is_internal_staff and str(request.user.pk) != str(tenant_id):
+        return Response({'error': 'You may only view your own statement.'}, status=403)
+
+    try:
+        tenant = User.objects.get(pk=tenant_id)
+    except User.DoesNotExist:
+        return Response({'error': 'Tenant not found'}, status=404)
+
+    period_start = datetime.date.fromisoformat(period_start_str)
+    period_end = datetime.date.fromisoformat(period_end_str)
+
+    prior_invoiced = Invoice.objects.filter(
+        tenant=tenant, period_start__lt=period_start
+    ).aggregate(t=Sum('total_amount'))['t'] or 0
+    prior_paid = Payment.objects.filter(
+        invoice__tenant=tenant, payment_date__lt=period_start
+    ).aggregate(t=Sum('amount'))['t'] or 0
+    opening_balance = float(prior_invoiced) - float(prior_paid)
+
+    entries = []
+    balance = opening_balance
+    invoices = Invoice.objects.filter(
+        tenant=tenant, period_start__gte=period_start, period_start__lte=period_end
+    ).order_by('period_start').select_related('property')
+    for inv in invoices:
+        balance += float(inv.total_amount)
+        entries.append({
+            'date': str(inv.period_start), 'type': 'invoice',
+            'description': f'Rent — {inv.invoice_number} ({calendar.month_abbr[inv.period_start.month]} {inv.period_start.year})',
+            'property': inv.property.name if inv.property else '',
+            'debit': float(inv.total_amount), 'credit': 0, 'balance': balance,
+            'reference': inv.invoice_number, 'status': inv.status,
+        })
+
+    payments = Payment.objects.filter(
+        invoice__tenant=tenant, payment_date__gte=period_start, payment_date__lte=period_end
+    ).select_related('invoice').order_by('payment_date')
+    for pay in payments:
+        balance -= float(pay.amount)
+        entries.append({
+            'date': str(pay.payment_date), 'type': 'payment',
+            'description': f'Payment received — {pay.payment_method.replace("_", " ")}',
+            'property': pay.invoice.property.name if pay.invoice and pay.invoice.property else '',
+            'debit': 0, 'credit': float(pay.amount), 'balance': balance,
+            'reference': pay.reference_number or pay.invoice.invoice_number, 'status': 'paid',
+        })
+
+    return Response({
+        'tenant_id': tenant.pk,
+        'tenant_name': tenant.get_full_name(),
+        'period_start': str(period_start),
+        'period_end': str(period_end),
+        'opening_balance': opening_balance,
+        'closing_balance': balance,
+        'entries': sorted(entries, key=lambda x: x['date']),
+        'generated_at': datetime.date.today().isoformat(),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsInternalStaff])
+def distribute_rent_statement(request):
+    """Generate + distribute: records the statement was issued and notifies the tenant
+    in-app with a link back to their ledger (delivery_method leaves room for email/WhatsApp)."""
+    from rent.models import Invoice, Payment
+    from django.contrib.auth import get_user_model
+    from notifications.models import Notification
+    from .models import RentStatementLog
+    User = get_user_model()
+
+    tenant_id = request.data.get('tenant')
+    period_start_str = request.data.get('period_start')
+    period_end_str = request.data.get('period_end')
+    delivery_method = request.data.get('delivery_method', 'in_app')
+    if not tenant_id or not period_start_str or not period_end_str:
+        return Response({'error': 'tenant, period_start and period_end are required'}, status=400)
+
+    try:
+        tenant = User.objects.get(pk=tenant_id)
+    except User.DoesNotExist:
+        return Response({'error': 'Tenant not found'}, status=404)
+
+    period_start = datetime.date.fromisoformat(period_start_str)
+    period_end = datetime.date.fromisoformat(period_end_str)
+    closing_balance = float(
+        Invoice.objects.filter(tenant=tenant, period_start__lte=period_end).aggregate(
+            t=Sum('total_amount'))['t'] or 0
+    ) - float(
+        Payment.objects.filter(invoice__tenant=tenant, payment_date__lte=period_end).aggregate(
+            t=Sum('amount'))['t'] or 0
+    )
+
+    log = RentStatementLog.objects.create(
+        tenant=tenant, period_start=period_start, period_end=period_end,
+        delivery_method=delivery_method, closing_balance=closing_balance, sent_by=request.user,
+    )
+    Notification.objects.create(
+        user=tenant, notification_type='rent_statement', priority='normal',
+        title=f'Rent Statement — {period_start.strftime("%b %Y")}',
+        message=f'Your rent statement for {period_start.strftime("%B %Y")} is ready. '
+                f'Closing balance: ${closing_balance:,.2f}.',
+        link='/tenant-ledger',
+    )
+    return Response({'message': 'Statement distributed', 'log_id': log.pk, 'closing_balance': closing_balance})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def landlord_ledger(request):
     """Running financial summary per landlord/owner."""
     from rent.models import Invoice
@@ -280,6 +410,9 @@ def landlord_ledger(request):
 
     if not owner_id:
         return Response({'error': 'owner param required'}, status=400)
+
+    if not request.user.is_internal_staff and str(request.user.pk) != str(owner_id):
+        return Response({'error': 'You may only view your own ledger.'}, status=403)
 
     try:
         owner = User.objects.get(pk=owner_id)
@@ -320,7 +453,7 @@ def landlord_ledger(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def vat_zimra_report(request):
     """VAT on commissions for ZIMRA remittance."""
     from lettings.models import LandlordDisbursement
@@ -359,7 +492,7 @@ def vat_zimra_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def commission_trends(request):
     """Commission income trend analysis."""
     from lettings.models import LandlordDisbursement
@@ -400,7 +533,7 @@ def commission_trends(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def rent_per_sqm_report(request):
     """Rental rate per sqm analysis across portfolio — critical for commercial/industrial pricing."""
     from properties.models import Property, Unit
@@ -448,7 +581,7 @@ def rent_per_sqm_report(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsInternalStaff])
 def market_price_analysis(request):
     """Compare listed property prices against sales comparables database."""
     from sales.models import Listing
@@ -490,3 +623,205 @@ def market_price_analysis(request):
         })
 
     return Response({'listings': result, 'generated_at': datetime.date.today().isoformat()})
+
+
+@api_view(['GET'])
+@permission_classes([IsInternalStaff])
+def trial_balance(request):
+    """Instant period-end trial balance: every account's net debit/credit balance as of a date."""
+    from accounting.models import Account, JournalLine
+    from decimal import Decimal
+
+    as_of_str = request.query_params.get('as_of')
+    as_of = datetime.date.fromisoformat(as_of_str) if as_of_str else datetime.date.today()
+
+    totals = (
+        JournalLine.objects
+        .filter(entry__status='posted', entry__date__lte=as_of)
+        .values('account_id')
+        .annotate(total_debit=Sum('debit'), total_credit=Sum('credit'))
+    )
+    totals_by_account = {t['account_id']: t for t in totals}
+
+    rows = []
+    sum_debit_col = Decimal('0')
+    sum_credit_col = Decimal('0')
+    for account in Account.objects.filter(is_active=True).order_by('account_type', 'account_number'):
+        t = totals_by_account.get(account.pk)
+        if not t:
+            continue
+        net = (t['total_debit'] or Decimal('0')) - (t['total_credit'] or Decimal('0'))
+        debit_col = net if net > 0 else Decimal('0')
+        credit_col = -net if net < 0 else Decimal('0')
+        sum_debit_col += debit_col
+        sum_credit_col += credit_col
+        rows.append({
+            'account_id': account.pk,
+            'account_number': account.account_number,
+            'account_name': account.name,
+            'account_type': account.account_type,
+            'debit': float(debit_col),
+            'credit': float(credit_col),
+        })
+
+    return Response({
+        'as_of': as_of.isoformat(),
+        'accounts': rows,
+        'total_debit': float(sum_debit_col),
+        'total_credit': float(sum_credit_col),
+        'is_balanced': abs(sum_debit_col - sum_credit_col) < Decimal('0.01'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsInternalStaff])
+def balance_sheet(request):
+    """Automated balance sheet — Assets vs Liabilities + Equity (+ current-period net income) as of a date."""
+    from accounting.models import Account, JournalLine
+    from decimal import Decimal
+
+    as_of_str = request.query_params.get('as_of')
+    as_of = datetime.date.fromisoformat(as_of_str) if as_of_str else datetime.date.today()
+
+    def section_balances(account_type, credit_normal):
+        """Return per-account balances for a section, using the type's normal balance side."""
+        totals = (
+            JournalLine.objects
+            .filter(account__account_type=account_type, entry__status='posted', entry__date__lte=as_of)
+            .values('account_id', 'account__name', 'account__account_number', 'account__subtype')
+            .annotate(total_debit=Sum('debit'), total_credit=Sum('credit'))
+        )
+        items = []
+        section_total = Decimal('0')
+        for t in totals:
+            net_debit = (t['total_debit'] or Decimal('0')) - (t['total_credit'] or Decimal('0'))
+            balance = -net_debit if credit_normal else net_debit
+            if balance == 0:
+                continue
+            section_total += balance
+            items.append({
+                'account_id': t['account_id'],
+                'account_number': t['account__account_number'],
+                'account_name': t['account__name'],
+                'subtype': t['account__subtype'],
+                'balance': float(balance),
+            })
+        items.sort(key=lambda r: r['account_number'])
+        return items, section_total
+
+    assets, total_assets = section_balances('asset', credit_normal=False)
+    liabilities, total_liabilities = section_balances('liability', credit_normal=True)
+    equity, total_equity_accounts = section_balances('equity', credit_normal=True)
+    revenue, total_revenue = section_balances('revenue', credit_normal=True)
+    expenses, total_expenses = section_balances('expense', credit_normal=False)
+
+    net_income = total_revenue - total_expenses
+    total_equity = total_equity_accounts + net_income
+    total_liabilities_and_equity = total_liabilities + total_equity
+
+    return Response({
+        'as_of': as_of.isoformat(),
+        'assets': {'items': assets, 'total': float(total_assets)},
+        'liabilities': {'items': liabilities, 'total': float(total_liabilities)},
+        'equity': {
+            'items': equity + [{'account_id': None, 'account_number': '',
+                                 'account_name': 'Current Period Net Income', 'subtype': '',
+                                 'balance': float(net_income)}],
+            'total': float(total_equity),
+        },
+        'total_liabilities_and_equity': float(total_liabilities_and_equity),
+        'is_balanced': abs(total_assets - total_liabilities_and_equity) < Decimal('0.01'),
+    })
+
+
+def _rent_roll_row(prop, unit, lease, today):
+    from rent.models import Invoice
+    monthly_rent = float((unit.monthly_rent if unit else prop.monthly_rent) or 0)
+    is_occupied = bool(lease)
+
+    days_vacant = None
+    if not is_occupied:
+        from leases.models import Lease
+        last_lease = Lease.objects.filter(
+            property=prop, unit=unit, status__in=['expired', 'terminated']
+        ).order_by('-end_date').first()
+        vacant_since = last_lease.end_date if last_lease else prop.created_at.date()
+        days_vacant = max((today - vacant_since).days, 0)
+
+    arrears = 0.0
+    tenant_name = None
+    lease_start = lease_end = None
+    if lease:
+        tenant_name = lease.tenant.get_full_name() or lease.tenant.username
+        lease_start, lease_end = lease.start_date, lease.end_date
+        arrears = float(
+            Invoice.objects.filter(
+                tenant=lease.tenant, property=prop, status__in=['sent', 'partial', 'overdue']
+            ).aggregate(a=Sum(F('total_amount') - F('paid_amount')))['a'] or 0
+        )
+
+    return {
+        'property_id': prop.pk,
+        'property_name': prop.name,
+        'unit_id': unit.pk if unit else None,
+        'unit_number': unit.unit_number if unit else '—',
+        'is_occupied': is_occupied,
+        'tenant_name': tenant_name,
+        'lease_start': str(lease_start) if lease_start else None,
+        'lease_end': str(lease_end) if lease_end else None,
+        'monthly_rent': monthly_rent,
+        'arrears': arrears,
+        'days_vacant': days_vacant,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsInternalStaff])
+def rent_roll(request):
+    """Rent Roll: one row per unit (or per property for single-unit rentals) with current
+    occupancy, tenant, rent, arrears, and — for vacant rows — days vacant, plus portfolio-wide
+    occupancy/vacancy analytics."""
+    from properties.models import Property
+    from leases.models import Lease
+
+    today = datetime.date.today()
+    property_id = request.query_params.get('property')
+
+    props = Property.objects.exclude(property_type='land').prefetch_related('units')
+    if property_id:
+        props = props.filter(pk=property_id)
+
+    active_leases = Lease.objects.filter(status='active').select_related('tenant')
+    leases_by_unit = {l.unit_id: l for l in active_leases if l.unit_id}
+    leases_by_property = {l.property_id: l for l in active_leases if not l.unit_id}
+
+    rows = []
+    for prop in props:
+        units = list(prop.units.all())
+        if units:
+            for unit in units:
+                rows.append(_rent_roll_row(prop, unit, leases_by_unit.get(unit.pk), today))
+        else:
+            rows.append(_rent_roll_row(prop, None, leases_by_property.get(prop.pk), today))
+
+    occupied_rows = [r for r in rows if r['is_occupied']]
+    vacant_rows = [r for r in rows if not r['is_occupied']]
+    total_units = len(rows)
+    total_potential_rent = sum(r['monthly_rent'] for r in rows)
+    total_actual_rent = sum(r['monthly_rent'] for r in occupied_rows)
+
+    return Response({
+        'rows': rows,
+        'summary': {
+            'total_units': total_units,
+            'occupied': len(occupied_rows),
+            'vacant': len(vacant_rows),
+            'occupancy_rate': round(len(occupied_rows) / total_units * 100, 1) if total_units else 0,
+            'vacancy_rate': round(len(vacant_rows) / total_units * 100, 1) if total_units else 0,
+            'total_potential_rent': round(total_potential_rent, 2),
+            'total_actual_rent': round(total_actual_rent, 2),
+            'vacancy_loss': round(total_potential_rent - total_actual_rent, 2),
+            'total_arrears': round(sum(r['arrears'] for r in rows), 2),
+        },
+        'generated_at': today.isoformat(),
+    })

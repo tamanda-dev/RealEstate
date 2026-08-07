@@ -15,6 +15,8 @@ class Invoice(models.Model):
         ('cancelled', 'Cancelled'),
     ]
 
+    CURRENCY_CHOICES = [('USD', 'USD'), ('ZiG', 'ZiG')]
+
     tenant = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                related_name='rent_invoices')
     property = models.ForeignKey('properties.Property', on_delete=models.CASCADE,
@@ -30,6 +32,14 @@ class Invoice(models.Model):
     other_charges = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     paid_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    currency = models.CharField(max_length=5, choices=CURRENCY_CHOICES, default='USD',
+                                 help_text='Currency the tenant is billed in')
+    exchange_rate = models.ForeignKey('currency.ExchangeRate', on_delete=models.SET_NULL,
+                                       null=True, blank=True, related_name='invoices')
+    total_amount_zig = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'),
+                                            help_text='total_amount converted to ZiG at time of invoicing')
+    recurring_profile = models.ForeignKey('RecurringInvoiceProfile', on_delete=models.SET_NULL,
+                                           null=True, blank=True, related_name='generated_invoices')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -40,6 +50,8 @@ class Invoice(models.Model):
 
     def save(self, *args, **kwargs):
         self.total_amount = self.rent_amount + self.late_fee + self.other_charges
+        if self.exchange_rate:
+            self.total_amount_zig = self.exchange_rate.convert_usd_to_zig(self.total_amount)
         if not self.invoice_number:
             prefix = datetime.date.today().strftime('%Y%m')
             self.invoice_number = f"INV-{prefix}-{uuid.uuid4().hex[:6].upper()}"
@@ -47,6 +59,41 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"{self.invoice_number} - {self.tenant}"
+
+
+class RecurringInvoiceProfile(models.Model):
+    """Recurring Invoicing: auto-generates rent invoices for an active lease on a fixed
+    schedule. Picked up by the generate_recurring_invoices management command (cron-triggered,
+    same pattern as lettings.process_scheduled_bulk_payments)."""
+    FREQUENCY_CHOICES = [('monthly', 'Monthly'), ('quarterly', 'Quarterly')]
+
+    lease = models.ForeignKey('leases.Lease', on_delete=models.CASCADE, related_name='invoice_profiles')
+    frequency = models.CharField(max_length=10, choices=FREQUENCY_CHOICES, default='monthly')
+    billing_day = models.PositiveSmallIntegerField(default=1, help_text='Day of month invoices are generated (1-28)')
+    due_in_days = models.PositiveSmallIntegerField(default=5, help_text='Days after generation the invoice is due')
+    currency = models.CharField(max_length=5, choices=Invoice.CURRENCY_CHOICES, default='USD')
+    other_charges = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    auto_generate_disbursement = models.BooleanField(
+        default=False, help_text='When an invoice from this profile is paid in full, '
+                                  'auto-run the landlord disbursement calculation for that period')
+    is_active = models.BooleanField(default=True)
+    next_generation_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['next_generation_date']
+
+    def __str__(self):
+        return f"Recurring invoice — {self.lease} ({self.frequency})"
+
+    def advance_next_date(self):
+        months = 3 if self.frequency == 'quarterly' else 1
+        month = self.next_generation_date.month - 1 + months
+        year = self.next_generation_date.year + month // 12
+        month = month % 12 + 1
+        import calendar
+        day = min(self.billing_day, calendar.monthrange(year, month)[1])
+        self.next_generation_date = datetime.date(year, month, day)
 
 
 class Payment(models.Model):

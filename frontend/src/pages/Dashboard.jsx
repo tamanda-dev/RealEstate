@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Building2, FileText, Wrench, DollarSign, AlertTriangle,
-  TrendingUp, Users, BarChart2, ArrowRight, Bell, Clock, CheckCircle2,
+  TrendingUp, Users, BarChart2, ArrowRight, Bell, Clock,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,

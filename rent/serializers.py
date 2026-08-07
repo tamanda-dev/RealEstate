@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Invoice, Payment, LateFeeRule
+from .models import Invoice, Payment, LateFeeRule, RecurringInvoiceProfile
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -24,7 +24,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = '__all__'
-        read_only_fields = ['invoice_number', 'total_amount', 'created_at', 'updated_at']
+        read_only_fields = ['invoice_number', 'total_amount', 'total_amount_zig',
+                             'recurring_profile', 'created_at', 'updated_at']
 
     def get_tenant_name(self, obj):
         return obj.tenant.get_full_name() if obj.tenant else ''
@@ -40,3 +41,20 @@ class LateFeeRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = LateFeeRule
         fields = '__all__'
+
+
+class RecurringInvoiceProfileSerializer(serializers.ModelSerializer):
+    tenant_name = serializers.SerializerMethodField()
+    property_name = serializers.SerializerMethodField()
+    monthly_rent = serializers.DecimalField(source='lease.monthly_rent', max_digits=10,
+                                             decimal_places=2, read_only=True)
+
+    class Meta:
+        model = RecurringInvoiceProfile
+        fields = '__all__'
+
+    def get_tenant_name(self, obj):
+        return obj.lease.tenant.get_full_name() if obj.lease and obj.lease.tenant else ''
+
+    def get_property_name(self, obj):
+        return obj.lease.property.name if obj.lease and obj.lease.property else ''

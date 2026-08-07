@@ -40,6 +40,40 @@ class LeadViewSet(viewsets.ModelViewSet):
         }
         return Response(stats)
 
+    @action(detail=True, methods=['post'], url_path='convert-to-contact')
+    def convert_to_contact(self, request, pk=None):
+        """Identity chain fix: a won/qualified Lead used to require re-typing the same
+        person's name/phone/email into a brand-new sales.Contact by hand, with nothing
+        linking the two records. This either reuses a Contact that already matches on
+        email/phone, or creates one from the Lead's own data, and links them permanently."""
+        from sales.models import Contact
+        from sales.serializers import ContactSerializer
+        lead = self.get_object()
+        if lead.contact_id:
+            return Response(ContactSerializer(lead.contact).data)
+
+        existing = None
+        if lead.email:
+            existing = Contact.objects.filter(email__iexact=lead.email).first()
+        if not existing and lead.phone:
+            existing = Contact.objects.filter(phone=lead.phone).first()
+
+        if existing:
+            contact = existing
+        else:
+            contact = Contact.objects.create(
+                agent=lead.assigned_to,
+                contact_type='buyer' if lead.deal_type in ('sale', 'both') else 'seller',
+                first_name=lead.first_name, last_name=lead.last_name,
+                email=lead.email, phone=lead.phone,
+                budget_min=lead.budget_min_usd, budget_max=lead.budget_max_usd,
+                preferred_areas=lead.preferred_location,
+                source=lead.get_source_display(),
+            )
+        lead.contact = contact
+        lead.save(update_fields=['contact'])
+        return Response(ContactSerializer(contact).data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'])
     def advance_stage(self, request, pk=None):
         lead = self.get_object()

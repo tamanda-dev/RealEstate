@@ -92,6 +92,41 @@ export default function TenantLedgerPage() {
   const totalPaid = tenantLedger?.total_paid ?? ledgerEntries.reduce((a, e) => a + Number(e.credit ?? 0), 0)
   const outstanding = tenantLedger?.outstanding_balance ?? (totalInvoiced - totalPaid)
 
+  // ── RENT STATEMENT (generate + distribute) ──
+  const today = new Date()
+  const [statementRange, setStatementRange] = useState({
+    period_start: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10),
+    period_end: new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10),
+  })
+  const [statement, setStatement] = useState(null)
+  const [statementLoading, setStatementLoading] = useState(false)
+  const [distributing, setDistributing] = useState(false)
+
+  const loadStatement = async () => {
+    if (!selectedTenant) { toast.toast('Select a tenant first', 'warning'); return }
+    setStatementLoading(true)
+    try {
+      const res = await reportsAPI.rentStatement({ tenant: selectedTenant, ...statementRange })
+      setStatement(res.data)
+    } catch {
+      toast.toast('Failed to generate statement', 'error')
+    } finally {
+      setStatementLoading(false)
+    }
+  }
+
+  const handleDistribute = async () => {
+    setDistributing(true)
+    try {
+      await reportsAPI.distributeRentStatement({ tenant: selectedTenant, ...statementRange, delivery_method: 'in_app' })
+      toast.toast('Statement distributed to tenant', 'success')
+    } catch {
+      toast.toast('Failed to distribute statement', 'error')
+    } finally {
+      setDistributing(false)
+    }
+  }
+
   // ── LANDLORD LEDGER ──
   const [owners, setOwners] = useState([])
   const [selectedOwner, setSelectedOwner] = useState('')
@@ -220,6 +255,43 @@ export default function TenantLedgerPage() {
               </div>
             </>
           )}
+
+          {/* Rent Statement generate + distribute */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <h2 className="font-semibold text-slate-800 mb-3">Rent Statement</h2>
+            <div className="flex flex-wrap gap-3 items-end">
+              <div>
+                <label className={labelCls}>Period Start</label>
+                <input type="date" className={inputCls} value={statementRange.period_start}
+                  onChange={(e) => setStatementRange((f) => ({ ...f, period_start: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Period End</label>
+                <input type="date" className={inputCls} value={statementRange.period_end}
+                  onChange={(e) => setStatementRange((f) => ({ ...f, period_end: e.target.value }))} />
+              </div>
+              <button onClick={loadStatement} disabled={statementLoading}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {statementLoading ? 'Generating...' : 'Generate Statement'}
+              </button>
+              {statement && (
+                <button onClick={handleDistribute} disabled={distributing}
+                  className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50">
+                  {distributing ? 'Sending...' : 'Distribute to Tenant'}
+                </button>
+              )}
+            </div>
+
+            {statement && (
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <div className="flex gap-8 text-sm mb-3">
+                  <span>Opening Balance: <span className="font-semibold">${Number(statement.opening_balance).toLocaleString()}</span></span>
+                  <span>Closing Balance: <span className={`font-bold ${Number(statement.closing_balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>${Number(statement.closing_balance).toLocaleString()}</span></span>
+                </div>
+                <Table columns={tenantLedgerColumns} data={statement.entries ?? []} loading={false} emptyMessage="No activity in this period" />
+              </div>
+            )}
+          </div>
         </div>
       )}
 

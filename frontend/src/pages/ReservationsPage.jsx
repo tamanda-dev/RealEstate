@@ -97,7 +97,7 @@ export default function ReservationsPage() {
     { key: 'deal_type', label: 'Deal Type', render: (v) => (
       <span className="text-xs px-2 py-1 bg-slate-100 rounded-full capitalize">{v}</span>
     )},
-    { key: 'token_amount', label: 'Token (USD)', render: (v, row) => (
+    { key: 'token_amount', label: 'Token (USD)', render: (v) => (
       <div>
         <p className="text-sm font-semibold">${fmt(v)}</p>
         {v && <p className="text-xs text-slate-400">ZiG {(parseFloat(v) * rate).toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>}

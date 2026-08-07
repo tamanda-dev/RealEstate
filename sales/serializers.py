@@ -23,10 +23,15 @@ class ListingSerializer(serializers.ModelSerializer):
 
 class ContactSerializer(serializers.ModelSerializer):
     full_name = serializers.ReadOnlyField()
+    user_username = serializers.SerializerMethodField()
 
     class Meta:
         model = Contact
         fields = '__all__'
+        read_only_fields = ['user']
+
+    def get_user_username(self, obj):
+        return obj.user.username if obj.user else ''
 
 
 class OfferSerializer(serializers.ModelSerializer):

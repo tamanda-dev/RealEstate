@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Upload, FileText, File, Image, FolderOpen,
-  AlertTriangle, Download, Lock, Globe, Eye
+  AlertTriangle, Download, Lock, Globe
 } from 'lucide-react'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'

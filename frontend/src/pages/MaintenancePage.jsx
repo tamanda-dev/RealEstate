@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, AlertTriangle, Wrench, Pencil, Trash2, DollarSign } from 'lucide-react'
+import { Plus, AlertTriangle, Wrench, Pencil, Trash2 } from 'lucide-react'
 import { maintenanceAPI, propertiesAPI } from '../services/api'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'

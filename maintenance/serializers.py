@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Vendor, WorkOrder, MaintenanceExpense, PreventiveSchedule
+from .models import Vendor, WorkOrder, MaintenanceExpense, PreventiveSchedule, ApprovedContractor
 
 
 class PreventiveScheduleSerializer(serializers.ModelSerializer):
@@ -23,6 +23,20 @@ class VendorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vendor
         fields = '__all__'
+
+
+class ApprovedContractorSerializer(serializers.ModelSerializer):
+    vendor_detail = VendorSerializer(source='vendor', read_only=True)
+    property_name = serializers.CharField(source='property.name', read_only=True)
+    landlord_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApprovedContractor
+        fields = '__all__'
+        read_only_fields = ['landlord', 'approved_at']
+
+    def get_landlord_name(self, obj):
+        return obj.landlord.get_full_name() or obj.landlord.username
 
 
 class MaintenanceExpenseSerializer(serializers.ModelSerializer):

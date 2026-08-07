@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'reports',
     'lettings',
     'portal',
+    'aml',
 ]
 
 MIDDLEWARE = [
