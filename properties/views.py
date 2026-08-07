@@ -7,6 +7,11 @@ from .models import Property, PropertyImage, Unit
 from .serializers import PropertySerializer, PropertyListSerializer, PropertyImageSerializer, UnitSerializer
 
 
+class IsAdminOrPropertyManager(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ('admin', 'property_manager')
+
+
 class PropertyViewSet(viewsets.ModelViewSet):
     queryset = Property.objects.select_related('owner', 'manager').prefetch_related('images', 'units')
     search_fields = ['name', 'address', 'city', 'state']
@@ -24,6 +29,39 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             return PropertyListSerializer
         return PropertySerializer
+
+    def get_permissions(self):
+        if self.action in ('unassigned', 'assign_owner'):
+            return [IsAdminOrPropertyManager()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=['get'])
+    def unassigned(self, request):
+        """Properties with no owner yet — used when onboarding a new landlord
+        so an admin can attach existing stock instead of only creating new listings."""
+        qs = Property.objects.filter(owner__isnull=True).order_by('-created_at')
+        serializer = PropertyListSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def assign_owner(self, request, pk=None):
+        from users.models import User
+
+        property_obj = self.get_object()
+        if property_obj.owner_id is not None:
+            return Response({'error': 'This property already has an owner.'}, status=400)
+
+        try:
+            owner = User.objects.get(pk=request.data.get('owner_id'))
+        except (User.DoesNotExist, ValueError, TypeError):
+            return Response({'error': 'User not found.'}, status=400)
+
+        if not owner.is_landlord:
+            return Response({'error': 'Selected user is not a landlord.'}, status=400)
+
+        property_obj.owner = owner
+        property_obj.save(update_fields=['owner'])
+        return Response(PropertySerializer(property_obj).data)
 
     @action(detail=True, methods=['get'])
     def units(self, request, pk=None):

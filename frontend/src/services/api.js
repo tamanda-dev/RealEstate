@@ -57,6 +57,8 @@ export const propertiesAPI = {
   allUnits: (params) => api.get('/properties/units/', { params }),
   portfolioAnalytics: () => api.get('/properties/portfolio_analytics/'),
   roiAnalytics: (id) => api.get(`/properties/${id}/roi_analytics/`),
+  unassigned: () => api.get('/properties/unassigned/'),
+  assignOwner: (id, ownerId) => api.post(`/properties/${id}/assign_owner/`, { owner_id: ownerId }),
 }
 
 // ── Rent ──────────────────────────────────────────────────────────────────────
