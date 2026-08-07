@@ -50,6 +50,8 @@ class Invoice(models.Model):
 
     def save(self, *args, **kwargs):
         self.total_amount = self.rent_amount + self.late_fee + self.other_charges
+        if self.status == 'paid':
+            self.paid_amount = self.total_amount
         if self.exchange_rate:
             self.total_amount_zig = self.exchange_rate.convert_usd_to_zig(self.total_amount)
         if not self.invoice_number:

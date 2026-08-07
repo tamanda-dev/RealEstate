@@ -22,7 +22,7 @@ const PAYMENT_METHODS = [
 const emptyInvoice = {
   tenant: '', property: '', unit: '',
   period_start: '', period_end: '', due_date: '',
-  rent_amount: '', other_charges: '', notes: '', status: 'sent',
+  rent_amount: '', other_charges: '', notes: '', status: 'sent', paid_amount: '',
 }
 
 export default function RentPage() {
@@ -205,6 +205,7 @@ export default function RentPage() {
       const payload = { ...invForm }
       if (!payload.unit) delete payload.unit
       if (!payload.property) delete payload.property
+      if (!payload.paid_amount) delete payload.paid_amount
       await rentAPI.invoices.create(payload)
       setInvModal(false)
       toast('Invoice created', 'success')
@@ -614,6 +615,15 @@ export default function RentPage() {
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
+          {invForm.status === 'partial' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Amount Already Paid (USD) *</label>
+              <input required type="number" step="0.01" min="0.01" value={invForm.paid_amount}
+                onChange={e => setInvForm(f => ({ ...f, paid_amount: e.target.value }))}
+                placeholder="e.g. 300.00"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes</label>
             <textarea rows={2} value={invForm.notes}

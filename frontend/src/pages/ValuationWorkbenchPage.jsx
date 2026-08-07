@@ -9,7 +9,23 @@ import { valuationExtAPI, propertiesAPI, valuationAPI } from '../services/api'
 
 const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500'
 const labelCls = 'block text-xs font-semibold text-slate-600 mb-1'
-const PROPERTY_TYPES = ['Residential', 'Commercial', 'Industrial', 'Land', 'Mixed Use']
+const PROPERTY_TYPES = [
+  { value: 'residential', label: 'Residential' },
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'industrial', label: 'Industrial' },
+  { value: 'land', label: 'Land / Stand' },
+  { value: 'agricultural', label: 'Agricultural' },
+  { value: 'mixed', label: 'Mixed Use' },
+]
+
+const SOURCE_OPTIONS = [
+  { value: 'deeds_registry', label: 'Deeds Registry' },
+  { value: 'agent_confirmed', label: 'Agent Confirmed' },
+  { value: 'newspaper', label: 'Herald / NewsDay' },
+  { value: 'own_sale', label: 'In-House Sale' },
+  { value: 'other_valuer', label: 'Other Valuer' },
+  { value: 'other', label: 'Other' },
+]
 
 export default function ValuationWorkbenchPage() {
   const toast = useToast()
@@ -35,7 +51,7 @@ export default function ValuationWorkbenchPage() {
   const [addModal, setAddModal] = useState(false)
   const [addForm, setAddForm] = useState({
     address: '', suburb: '', city: '', property_type: '',
-    land_size_sqm: '', floor_size_sqm: '', bedrooms: '', bathrooms: '',
+    land_size_sqm: '', floor_area_sqm: '', bedrooms: '', bathrooms: '',
     sale_price_usd: '', sale_date: '', source: '', verified: false, notes: '',
   })
   const [adding, setAdding] = useState(false)
@@ -44,18 +60,21 @@ export default function ValuationWorkbenchPage() {
     e.preventDefault()
     setCompLoading(true)
     try {
-      const res = await valuationExtAPI.salesComparables.search(compSearch)
-      const data = Array.isArray(res.data) ? res.data : res.data?.results ?? []
+      const res = await valuationExtAPI.salesComparables.search({
+        ...compSearch,
+        min_land_sqm: compSearch.min_land_size,
+        max_land_sqm: compSearch.max_land_size,
+      })
+      const data = res.data?.comparables ?? (Array.isArray(res.data) ? res.data : res.data?.results ?? [])
       setCompResults(data)
       if (data.length) {
-        const prices = data.map(d => Number(d.sale_price_usd ?? 0))
-        const sqmPrices = data.map(d => Number(d.price_per_sqm_land ?? 0)).filter(Boolean)
+        const stats = res.data?.statistics
         setCompStats({
           count: data.length,
-          avg_price: prices.reduce((a, b) => a + b, 0) / prices.length,
-          min_price: Math.min(...prices),
-          max_price: Math.max(...prices),
-          avg_sqm: sqmPrices.length ? sqmPrices.reduce((a, b) => a + b, 0) / sqmPrices.length : 0,
+          avg_price: stats?.avg_price ?? 0,
+          min_price: stats?.min_price ?? 0,
+          max_price: stats?.max_price ?? 0,
+          avg_sqm: stats?.avg_price_per_sqm ?? 0,
         })
       } else {
         setCompStats(null)
@@ -76,7 +95,7 @@ export default function ValuationWorkbenchPage() {
       setAddModal(false)
       setAddForm({
         address: '', suburb: '', city: '', property_type: '',
-        land_size_sqm: '', floor_size_sqm: '', bedrooms: '', bathrooms: '',
+        land_size_sqm: '', floor_area_sqm: '', bedrooms: '', bathrooms: '',
         sale_price_usd: '', sale_date: '', source: '', verified: false, notes: '',
       })
     } catch {
@@ -92,13 +111,13 @@ export default function ValuationWorkbenchPage() {
     { key: 'city', label: 'City' },
     { key: 'property_type', label: 'Type' },
     { key: 'land_size_sqm', label: 'Land (m²)', render: v => v ? `${Number(v).toLocaleString()} m²` : '-' },
-    { key: 'floor_size_sqm', label: 'Floor (m²)', render: v => v ? `${Number(v).toLocaleString()} m²` : '-' },
+    { key: 'floor_area_sqm', label: 'Floor (m²)', render: v => v ? `${Number(v).toLocaleString()} m²` : '-' },
     {
       key: 'beds_baths', label: 'Beds/Baths',
       render: (_, row) => `${row.bedrooms ?? '-'}/${row.bathrooms ?? '-'}`
     },
     { key: 'sale_price_usd', label: 'Sale Price USD', render: v => <span className="font-semibold">${Number(v ?? 0).toLocaleString()}</span> },
-    { key: 'price_per_sqm_land', label: 'Price/m² Land', render: v => v ? `$${Number(v).toFixed(0)}/m²` : '-' },
+    { key: 'price_per_sqm_land_usd', label: 'Price/m² Land', render: v => v ? `$${Number(v).toFixed(0)}/m²` : '-' },
     { key: 'sale_date', label: 'Sale Date', render: v => v ? new Date(v).toLocaleDateString() : '-' },
     { key: 'verified', label: 'Verified', render: v => v ? <Badge value="Verified" /> : <Badge value="Unverified" /> },
     { key: 'source', label: 'Source', render: v => v ? <Badge value={v} /> : '-' },
@@ -227,7 +246,7 @@ export default function ValuationWorkbenchPage() {
                   <select className={inputCls} value={compSearch.property_type}
                     onChange={e => setCompSearch(f => ({ ...f, property_type: e.target.value }))}>
                     <option value="">All Types</option>
-                    {PROPERTY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    {PROPERTY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
                 <div>
@@ -607,9 +626,9 @@ export default function ValuationWorkbenchPage() {
               <div>
                 <label className={labelCls}>Property Type</label>
                 <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={addForm.property_type} onChange={e => setAddForm(f => ({ ...f, property_type: e.target.value }))}>
+                  value={addForm.property_type} onChange={e => setAddForm(f => ({ ...f, property_type: e.target.value }))} required>
                   <option value="">Select type...</option>
-                  {PROPERTY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  {PROPERTY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
               <div>
@@ -620,7 +639,7 @@ export default function ValuationWorkbenchPage() {
               <div>
                 <label className={labelCls}>Floor Size (m²)</label>
                 <input type="number" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={addForm.floor_size_sqm} onChange={e => setAddForm(f => ({ ...f, floor_size_sqm: e.target.value }))} min={0} />
+                  value={addForm.floor_area_sqm} onChange={e => setAddForm(f => ({ ...f, floor_area_sqm: e.target.value }))} min={0} />
               </div>
               <div>
                 <label className={labelCls}>Bedrooms</label>
@@ -644,9 +663,11 @@ export default function ValuationWorkbenchPage() {
               </div>
               <div>
                 <label className={labelCls}>Source</label>
-                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={addForm.source} onChange={e => setAddForm(f => ({ ...f, source: e.target.value }))}
-                  placeholder="e.g. Deeds Office, Agent" />
+                <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={addForm.source} onChange={e => setAddForm(f => ({ ...f, source: e.target.value }))} required>
+                  <option value="">Select source...</option>
+                  {SOURCE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
               </div>
               <div className="col-span-2">
                 <label className={labelCls}>Notes</label>

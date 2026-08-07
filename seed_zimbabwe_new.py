@@ -2,6 +2,7 @@
 import os
 import django
 import datetime
+from decimal import Decimal
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
@@ -19,7 +20,7 @@ manager = User.objects.filter(username='manager').first()
 # Exchange Rate
 rate, _ = ExchangeRate.objects.get_or_create(
     date=datetime.date.today(), source='rbz',
-    defaults=dict(usd_to_zig='13.7400', set_by=admin,
+    defaults=dict(usd_to_zig=Decimal('13.7400'), set_by=admin,
                   notes='RBZ official rate — June 2025', is_active=True)
 )
 print(f"Rate: 1 USD = {rate.usd_to_zig} ZiG")
