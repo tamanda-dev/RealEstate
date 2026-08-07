@@ -100,16 +100,17 @@ export default function LandlordPortalPage() {
 
   const disbColumns = [
     { key: 'property_name', label: 'Property', render: (v, row) => <span className="font-medium">{v ?? row.property}</span> },
+    { key: 'owner_name', label: 'Landlord', render: v => v || '—' },
     {
       key: 'period', label: 'Period',
       render: (v, row) => {
-        const m = row.month ? MONTHS[row.month - 1] : ''
-        return `${m} ${row.year ?? ''}`
+        const m = row.period_month ? MONTHS[row.period_month - 1] : ''
+        return `${m} ${row.period_year ?? ''}`
       }
     },
     { key: 'gross_rent_usd', label: 'Gross Rent USD', render: v => `$${Number(v ?? 0).toLocaleString()}` },
-    { key: 'commission_usd', label: 'Commission (10%)', render: v => `$${Number(v ?? 0).toLocaleString()}` },
-    { key: 'vat_on_commission', label: 'VAT on Commission (15%)', render: v => `$${Number(v ?? 0).toLocaleString()}` },
+    { key: 'agent_commission_usd', label: 'Commission', render: (v, row) => `$${Number(v ?? 0).toLocaleString()} (${Number(row.agent_commission_rate ?? 0)}%)` },
+    { key: 'vat_on_commission_usd', label: 'VAT on Commission', render: (v, row) => `$${Number(v ?? 0).toLocaleString()} (${Number(row.vat_rate ?? 0)}%)` },
     {
       key: 'net_to_landlord_usd', label: 'Net to Landlord',
       render: (v, row) => (
@@ -338,18 +339,20 @@ export default function LandlordPortalPage() {
     }
   }
 
+  const annualSummary = annualData?.summary ?? {}
   const annualDisbs = annualData?.disbursements ?? []
   const annualChartData = MONTHS.map((m, i) => {
-    const row = annualDisbs.find(d => d.month === i + 1) ?? {}
+    const row = annualDisbs.find(d => d.period_month === i + 1) ?? {}
     return { month: m, revenue: Number(row.gross_rent_usd ?? 0), net: Number(row.net_to_landlord_usd ?? 0) }
   })
 
   const annualTableCols = [
     { key: 'property_name', label: 'Property', render: (v, r) => v ?? r.property },
-    { key: 'month', label: 'Month', render: v => MONTHS[(v ?? 1) - 1] },
+    { key: 'owner_name', label: 'Landlord', render: v => v || '—' },
+    { key: 'period_month', label: 'Month', render: v => MONTHS[(v ?? 1) - 1] },
     { key: 'gross_rent_usd', label: 'Gross Rent', render: v => `$${Number(v ?? 0).toLocaleString()}` },
-    { key: 'commission_usd', label: 'Commission', render: v => `$${Number(v ?? 0).toLocaleString()}` },
-    { key: 'vat_on_commission', label: 'VAT', render: v => `$${Number(v ?? 0).toLocaleString()}` },
+    { key: 'agent_commission_usd', label: 'Commission', render: v => `$${Number(v ?? 0).toLocaleString()}` },
+    { key: 'vat_on_commission_usd', label: 'VAT', render: v => `$${Number(v ?? 0).toLocaleString()}` },
     { key: 'net_to_landlord_usd', label: 'Net to Landlord', render: v => <span className="font-bold text-green-700">${Number(v ?? 0).toLocaleString()}</span> },
     { key: 'status', label: 'Status', render: v => <Badge value={v} /> },
   ]
@@ -613,10 +616,10 @@ export default function LandlordPortalPage() {
           {annualData && (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard icon={DollarSign} label="Annual Gross Rent" value={`$${Number(annualData.annual_gross_rent ?? 0).toLocaleString()}`} color="blue" />
-                <StatCard icon={Percent} label="Total Commission" value={`$${Number(annualData.total_commission ?? 0).toLocaleString()}`} color="orange" />
-                <StatCard icon={FileText} label="Total VAT" value={`$${Number(annualData.total_vat ?? 0).toLocaleString()}`} color="purple" />
-                <StatCard icon={TrendingUp} label="Net to Landlord" value={`$${Number(annualData.net_to_landlord ?? 0).toLocaleString()}`} color="green" />
+                <StatCard icon={DollarSign} label="Annual Gross Rent" value={`$${Number(annualSummary.total_gross ?? 0).toLocaleString()}`} color="blue" />
+                <StatCard icon={Percent} label="Total Commission" value={`$${Number(annualSummary.total_commission ?? 0).toLocaleString()}`} color="orange" />
+                <StatCard icon={FileText} label="Total VAT" value={`$${Number(annualSummary.total_vat ?? 0).toLocaleString()}`} color="purple" />
+                <StatCard icon={TrendingUp} label="Net to Landlord" value={`$${Number(annualSummary.total_net ?? 0).toLocaleString()}`} color="green" />
               </div>
 
               <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
