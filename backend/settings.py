@@ -153,6 +153,18 @@ REST_FRAMEWORK = {
     ],
 }
 
+# ── goAML / FIU reporting entity registration ───────────────────────────────────
+# Issued by the RBZ Financial Intelligence Unit when this business registers as a
+# reporting entity on the goAML portal — required for the XML export in aml/monitoring.py
+# to validate against the goAML XSD. Leave GOAML_REPORTING_ENTITY_ID blank until you have
+# the real registration number; the export will still generate but won't pass FIU validation.
+GOAML_REPORTING_ENTITY_ID = os.environ.get('GOAML_REPORTING_ENTITY_ID', '')
+GOAML_REPORTING_ENTITY_NAME = os.environ.get('GOAML_REPORTING_ENTITY_NAME', 'PropManager ZW')
+GOAML_REPORTING_ENTITY_BRANCH = os.environ.get('GOAML_REPORTING_ENTITY_BRANCH', 'Head Office')
+# Zimbabwe's ISO 4217 local reporting currency (ZiG, effective 2024). Transactions recorded
+# in USD are converted using currency.models.ExchangeRate for the mandatory amount_local field.
+GOAML_LOCAL_CURRENCY = os.environ.get('GOAML_LOCAL_CURRENCY', 'ZWG')
+
 # ── JWT ────────────────────────────────────────────────────────────────────────
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),

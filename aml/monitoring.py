@@ -4,6 +4,10 @@ views.py so it can be unit-tested and called from multiple apps without circular
 """
 import datetime
 from decimal import Decimal
+from xml.dom import minidom
+from xml.etree import ElementTree as ET
+
+from django.conf import settings
 
 from .models import (KYCProfile, MonitoredTransaction, CTR_THRESHOLD_USD,
                       LARGE_CASH_THRESHOLD_USD, STRUCTURING_WINDOW_DAYS,
@@ -92,47 +96,179 @@ def _risk_level_for_flags(flags):
     return 'medium'
 
 
+# ── goAML reference-table mappings ──────────────────────────────────────────────
+# The UNODC goAML XSD structure (element names/nesting used below) is a fixed public
+# standard, but the *values* several fields must take come from reference tables each FIU
+# maintains for its registered reporting entities (RBZ's FIU issues these on goAML portal
+# registration — they are not publicly documented). The mappings below are best-effort
+# placeholders using goAML's common convention across other FIU deployments; confirm the
+# real codes against RBZ's published reference tables before relying on this for a live
+# submission — an unmapped/incorrect code will fail XSD validation on upload just like an
+# empty one would.
+GOAML_ID_TYPE_CODES = {
+    'national_id': 'ID_CARD',
+    'passport': 'PASSPORT',
+    'drivers_license': 'DRIVING_LICENSE',
+    'company_reg': 'OTHER',
+}
+GOAML_TRANSMODE_CODES = {
+    'cash': 'CASH',
+    'bank_transfer': 'ELEC',
+    'mobile_money': 'ELEC',
+    'card': 'ELEC',
+    'cheque': 'CHEQUE',
+}
+GOAML_FUNDS_CODES = {
+    'cash': 'CASH',
+    'bank_transfer': 'ACCOUNT',
+    'mobile_money': 'ACCOUNT',
+    'card': 'ACCOUNT',
+    'cheque': 'CHEQUE',
+}
+# ISO 3166-1 alpha-2 — extend as KYC subjects from other countries are onboarded.
+GOAML_COUNTRY_CODES = {
+    'zimbabwe': 'ZW', 'south africa': 'ZA', 'botswana': 'BW', 'zambia': 'ZM',
+    'mozambique': 'MZ', 'united kingdom': 'GB', 'united states': 'US',
+}
+
+
+def _country_code(name):
+    return GOAML_COUNTRY_CODES.get((name or '').strip().lower(), (name or '')[:2].upper() or 'ZW')
+
+
+def _split_name(full_name):
+    parts = (full_name or '').split(None, 1)
+    return (parts[0], parts[1]) if len(parts) == 2 else (parts[0] if parts else '', '')
+
+
+def _sub(parent, tag, text=None):
+    """Add a child element. Skips it entirely when text is falsy — most goAML fields are
+    optional, and an empty mandatory element is no more valid than a missing one."""
+    if text is None or text == '':
+        return None
+    el = ET.SubElement(parent, tag)
+    el.text = str(text)
+    return el
+
+
+def _add_person(parent, tag, profile):
+    """Build a t_person block (identification + address) for a KYC subject."""
+    person = ET.SubElement(parent, tag)
+    first_name, last_name = _split_name(profile.full_name)
+    _sub(person, 'first_name', first_name)
+    _sub(person, 'last_name', last_name or first_name)
+    if profile.date_of_birth:
+        _sub(person, 'birthdate', profile.date_of_birth.isoformat())
+    _sub(person, 'occupation', profile.occupation)
+    _sub(person, 'nationality1', _country_code(profile.nationality))
+    if profile.id_number:
+        identification = ET.SubElement(person, 'identification')
+        _sub(identification, 'type', GOAML_ID_TYPE_CODES.get(profile.id_type, 'OTHER'))
+        _sub(identification, 'number', profile.id_number)
+        _sub(identification, 'issue_country', _country_code(profile.nationality))
+        if profile.expiry_date:
+            _sub(identification, 'expiry_date', profile.expiry_date.isoformat())
+    return person
+
+
+def _build_reason(t):
+    """goAML requires a free-text narrative explaining the grounds for suspicion (`reason`,
+    mandatory, max 4000 chars) — auto-drafted from the triggered rules; a compliance officer
+    should review/extend this before submission, same as any STR narrative."""
+    flag_text = ', '.join(t.flags) if t.flags else 'threshold review'
+    parts = [
+        f"Automated AML screening flagged this {t.get_source_type_display().lower()} "
+        f"({t.amount} {t.currency} on {t.transaction_date.isoformat()}) for: {flag_text}.",
+    ]
+    if t.description:
+        parts.append(f"Transaction context: {t.description}")
+    if t.review_notes:
+        parts.append(f"Compliance officer notes: {t.review_notes}")
+    return ' '.join(parts)
+
+
+def _timezone_now_iso():
+    from django.utils import timezone
+    return timezone.now().strftime('%Y-%m-%dT%H:%M:%S')
+
+
 def generate_goaml_xml(monitored_transaction):
-    """Render a goAML-schema-compliant XML report for one flagged transaction.
+    """Render a goAML XML report for one flagged transaction, using the element names and
+    nesting defined by UNODC's goAML XSD (report > transaction > t_from/t_to > person, with
+    identification/address sub-blocks) rather than an ad-hoc schema.
 
-    goAML (used by Zimbabwe's RBZ Financial Intelligence Unit and most FIUs worldwide) has
-    no public real-time submission API for reporting entities — the standard workflow is to
-    generate this XML and upload it through the goAML web client. This function produces
-    that file; delivery is a manual step outside this system's control.
+    goAML has no public real-time submission API for reporting entities — the standard
+    workflow is to generate this XML and upload it through the goAML web client. This
+    function produces that file; delivery is a manual step outside this system's control.
+    Configure GOAML_REPORTING_ENTITY_ID etc. in settings once RBZ issues your registration —
+    see the reference-table note above the mapping dicts for the fields you'll still need to
+    confirm against RBZ's own code lists before a submission will pass XSD validation.
     """
-    from xml.sax.saxutils import escape
-
     t = monitored_transaction
     subject = t.subject
-    report_type = 'STR' if t.status != 'reported' else 'STR'  # Suspicious Transaction Report
 
-    party_xml = ''
+    # A pure currency-threshold breach with no suspicion indicators is a routine Currency
+    # Transaction Report; anything with a behavioural flag (PEP, structuring, jurisdiction,
+    # unverified KYC) is a Suspicious Transaction Report.
+    suspicious_flags = set(t.flags) - {'LARGE_TRANSACTION'}
+    report_code = 'STR' if suspicious_flags else 'CTR'
+
+    local_currency = getattr(settings, 'GOAML_LOCAL_CURRENCY', 'ZWG')
+    amount_local, fx_rate = t.amount, None
+    reported_currency = t.currency  # what amount_local is actually denominated in below
+    if t.currency != local_currency and local_currency == 'ZWG':
+        from currency.models import ExchangeRate
+        rate = ExchangeRate.get_latest()
+        if rate:
+            amount_local = rate.convert_usd_to_zig(t.amount)
+            fx_rate = rate.usd_to_zig
+            reported_currency = local_currency
+        # No rate configured — fall through and report in the transaction's own currency
+        # rather than mislabeling the raw amount as ZWG when it was never converted.
+
+    report = ET.Element('report')
+    _sub(report, 'rentity_id', getattr(settings, 'GOAML_REPORTING_ENTITY_ID', ''))
+    _sub(report, 'rentity_branch', getattr(settings, 'GOAML_REPORTING_ENTITY_BRANCH', ''))
+    _sub(report, 'submission_code', 'E')  # E = manually entered/generated, not bulk-uploaded by the FIU itself
+    _sub(report, 'report_code', report_code)
+    _sub(report, 'entity_reference', t.goaml_reference or f'TXN-{t.pk}')
+    _sub(report, 'submission_date', _timezone_now_iso())
+    _sub(report, 'currency_code_local', reported_currency)
+
+    if t.reviewed_by:
+        first_name, last_name = _split_name(t.reviewed_by.get_full_name() or t.reviewed_by.username)
+        reporting_person = ET.SubElement(report, 'reporting_person')
+        _sub(reporting_person, 'first_name', first_name)
+        _sub(reporting_person, 'last_name', last_name or first_name)
+        _sub(reporting_person, 'email', t.reviewed_by.email)
+
+    _sub(report, 'reason', _build_reason(t))
+
+    if t.flags:
+        indicators = ET.SubElement(report, 'report_indicators')
+        for flag in t.flags:
+            _sub(indicators, 'indicator', flag)
+
+    transaction = ET.SubElement(report, 'transaction')
+    _sub(transaction, 'transactionnumber', str(t.pk))
+    _sub(transaction, 'transaction_description', t.description or t.get_source_type_display())
+    _sub(transaction, 'date_transaction', t.transaction_date.isoformat())
+    _sub(transaction, 'transmode_code', GOAML_TRANSMODE_CODES.get(t.payment_method, 'OTHER'))
+    _sub(transaction, 'amount_local', str(amount_local))
+
+    t_from = ET.SubElement(transaction, 't_from')
+    _sub(t_from, 'from_funds_code', GOAML_FUNDS_CODES.get(t.payment_method, 'OTHER'))
+    if fx_rate is not None:
+        fx = ET.SubElement(t_from, 'from_foreign_currency')
+        _sub(fx, 'foreign_currency_code', t.currency)
+        _sub(fx, 'foreign_amount', str(t.amount))
+        _sub(fx, 'foreign_exchange_rate', str(fx_rate))
     if subject:
-        party_xml = f"""
-    <involved_party>
-      <full_name>{escape(subject.full_name)}</full_name>
-      <id_type>{escape(subject.id_type)}</id_type>
-      <id_number>{escape(subject.id_number)}</id_number>
-      <nationality>{escape(subject.nationality)}</nationality>
-      <is_pep>{'true' if subject.is_pep else 'false'}</is_pep>
-    </involved_party>"""
+        _add_person(t_from, 'from_person', subject)
+        _sub(t_from, 'from_country', _country_code(subject.nationality))
 
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<report type="{report_type}" xmlns="urn:goAML:report">
-  <reporting_entity>
-    <name>PropManager ZW</name>
-    <report_date>{datetime.date.today().isoformat()}</report_date>
-  </reporting_entity>
-  <transaction>
-    <transaction_id>{t.pk}</transaction_id>
-    <transaction_date>{t.transaction_date.isoformat()}</transaction_date>
-    <amount>{t.amount}</amount>
-    <currency>{escape(t.currency)}</currency>
-    <payment_method>{escape(t.payment_method)}</payment_method>
-    <source_type>{escape(t.source_type)}</source_type>
-    <description>{escape(t.description)}</description>
-    <risk_level>{escape(t.risk_level)}</risk_level>
-    <indicators>{','.join(t.flags)}</indicators>
-  </transaction>{party_xml}
-</report>
-"""
+    t_to = ET.SubElement(transaction, 't_to')
+    t_to_entity = ET.SubElement(t_to, 'to_entity')
+    _sub(t_to_entity, 'name', getattr(settings, 'GOAML_REPORTING_ENTITY_NAME', 'PropManager ZW'))
+
+    return minidom.parseString(ET.tostring(report, encoding='unicode')).toprettyxml(indent='  ')
