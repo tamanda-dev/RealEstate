@@ -25,7 +25,7 @@ class SalesComparablesDBViewSet(viewsets.ModelViewSet):
         """Intelligent comparable search for valuations."""
         suburb = request.data.get('suburb', '')
         city = request.data.get('city', '')
-        property_type = request.data.get('property_type', 'residential')
+        property_type = request.data.get('property_type', '')
         min_land = request.data.get('min_land_sqm')
         max_land = request.data.get('max_land_sqm')
         date_from = request.data.get('date_from')
@@ -33,8 +33,10 @@ class SalesComparablesDBViewSet(viewsets.ModelViewSet):
         bedrooms = request.data.get('bedrooms')
         verified_only = request.data.get('verified_only', False)
 
-        qs = SalesComparablesDB.objects.filter(property_type=property_type)
+        qs = SalesComparablesDB.objects.all()
 
+        if property_type:
+            qs = qs.filter(property_type=property_type)
         if suburb:
             qs = qs.filter(suburb__icontains=suburb)
         if city:
