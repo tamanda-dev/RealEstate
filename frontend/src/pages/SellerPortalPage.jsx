@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Building2, DollarSign, Eye, Tag, TrendingUp, BarChart2,
-  CheckCircle, ArrowRight, FileText, Receipt, UserCog,
+  CheckCircle, ArrowRight, FileText, Receipt, UserCog, Plus, Home,
 } from 'lucide-react'
 import { propertiesAPI, rentAPI, salesAPI, reportsAPI, usersAPI } from '../services/api'
 import { portalAPI } from '../services/api'
@@ -10,12 +10,34 @@ import { useToast } from '../context/ToastContext'
 import Badge from '../components/Badge'
 import StatCard from '../components/StatCard'
 import Table from '../components/Table'
+import Modal from '../components/Modal'
 
 const fmtUSD = (v) => v != null ? `$${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
 const TABS = ['My Portfolio', 'Rental Statements', 'Invoices', 'Offers Received', 'Listing Performance', 'Account Details']
 const currentYear = new Date().getFullYear()
+
+const PROPERTY_TYPES = [
+  { value: 'residential', label: 'Residential' },
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'industrial', label: 'Industrial' },
+  { value: 'land', label: 'Land / Stand' },
+  { value: 'mixed', label: 'Mixed Use' },
+]
+const RENT_STATUSES = ['available', 'rented', 'under_maintenance']
+const SALE_STATUSES = ['listed_for_sale', 'sold', 'under_maintenance']
+
+const emptyPropertyForm = {
+  purpose: 'rent',
+  name: '', address: '', city: 'Harare', state: '', country: 'Zimbabwe',
+  property_type: 'residential',
+  status: 'available',
+  bedrooms: '', bathrooms: '', square_feet: '', year_built: '',
+  monthly_rent: '',
+  current_value: '',
+  description: '',
+}
 
 export default function SellerPortalPage() {
   const { user } = useAuth()
@@ -27,6 +49,56 @@ export default function SellerPortalPage() {
   const [offers, setOffers] = useState([])
   const [rentStats, setRentStats] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // ── Add Property ──
+  const [showAddProperty, setShowAddProperty] = useState(false)
+  const [propForm, setPropForm] = useState(emptyPropertyForm)
+  const [savingProperty, setSavingProperty] = useState(false)
+  const [propFormError, setPropFormError] = useState('')
+
+  const openAddProperty = () => {
+    setPropForm(emptyPropertyForm)
+    setPropFormError('')
+    setShowAddProperty(true)
+  }
+
+  const setPropertyPurpose = (purpose) => {
+    setPropForm(f => ({
+      ...f,
+      purpose,
+      status: purpose === 'rent' ? 'available' : 'listed_for_sale',
+      monthly_rent: '',
+      current_value: '',
+    }))
+  }
+
+  const handleAddProperty = async (e) => {
+    e.preventDefault()
+    setSavingProperty(true)
+    setPropFormError('')
+    try {
+      const { purpose, ...payload } = propForm
+      if (purpose === 'rent') delete payload.current_value
+      if (purpose === 'sale') delete payload.monthly_rent
+      payload.owner = user?.id
+      await propertiesAPI.create(payload)
+      toast('Property added', 'success')
+      setShowAddProperty(false)
+      setPropForm(emptyPropertyForm)
+      loadAll()
+    } catch (err) {
+      const data = err?.response?.data
+      setPropFormError(
+        typeof data === 'string' ? data
+        : data?.detail ?? Object.entries(data ?? {}).map(([k, v]) => `${k}: ${v}`).join(' | ')
+        ?? 'Failed to add property.'
+      )
+    } finally {
+      setSavingProperty(false)
+    }
+  }
+
+  const propertyStatusOptions = propForm.purpose === 'rent' ? RENT_STATUSES : SALE_STATUSES
 
   const loadAll = async () => {
     setLoading(true)
@@ -151,13 +223,19 @@ export default function SellerPortalPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">
-          Seller / Landlord Dashboard
-        </h1>
-        <p className="text-slate-500 text-sm mt-1">
-          Track your property portfolio, offers, and rental income.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">
+            Seller / Landlord Dashboard
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Track your property portfolio, offers, and rental income.
+          </p>
+        </div>
+        <button onClick={openAddProperty}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm shrink-0">
+          <Plus size={16} /> Add Property
+        </button>
       </div>
 
       {/* KPI Cards */}
@@ -458,6 +536,173 @@ export default function SellerPortalPage() {
           </form>
         </div>
       )}
+
+      {/* ── Add Property Modal ── */}
+      <Modal open={showAddProperty} onClose={() => { setShowAddProperty(false); setPropFormError('') }}
+        title="Add Property" size="lg">
+        <form onSubmit={handleAddProperty} className="space-y-5">
+          {propFormError && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">{propFormError}</div>
+          )}
+
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">What is this property listed for? *</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: 'rent', label: 'For Rent', icon: Home, desc: 'Tenant will pay monthly rent' },
+                { value: 'sale', label: 'For Sale', icon: Tag, desc: 'Property is on the market to sell' },
+              ].map(opt => (
+                <button key={opt.value} type="button"
+                  onClick={() => setPropertyPurpose(opt.value)}
+                  className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                    propForm.purpose === opt.value
+                      ? opt.value === 'rent' ? 'border-blue-500 bg-blue-50' : 'border-amber-500 bg-amber-50'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}>
+                  <opt.icon size={20} className={propForm.purpose === opt.value
+                    ? opt.value === 'rent' ? 'text-blue-600' : 'text-amber-600'
+                    : 'text-slate-400'} />
+                  <div>
+                    <p className="font-semibold text-sm text-slate-800">{opt.label}</p>
+                    <p className="text-[11px] text-slate-500">{opt.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Location</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Property Name *</label>
+                <input required value={propForm.name} onChange={e => setPropForm({ ...propForm, name: e.target.value })}
+                  placeholder="e.g. Borrowdale Cottage, CBD Office Block A"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Street Address *</label>
+                <input required value={propForm.address} onChange={e => setPropForm({ ...propForm, address: e.target.value })}
+                  placeholder="e.g. 14 Borrowdale Road, Borrowdale"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">City *</label>
+                <input required value={propForm.city} onChange={e => setPropForm({ ...propForm, city: e.target.value })}
+                  placeholder="e.g. Harare"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Province</label>
+                <input value={propForm.state} onChange={e => setPropForm({ ...propForm, state: e.target.value })}
+                  placeholder="e.g. Mashonaland East"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Property Details</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Property Type *</label>
+                <select required value={propForm.property_type} onChange={e => setPropForm({ ...propForm, property_type: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  {PROPERTY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                <select value={propForm.status} onChange={e => setPropForm({ ...propForm, status: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  {propertyStatusOptions.map(s => (
+                    <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Bedrooms</label>
+                <input type="number" min="0" value={propForm.bedrooms}
+                  onChange={e => setPropForm({ ...propForm, bedrooms: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Bathrooms</label>
+                <input type="number" min="0" step="0.5" value={propForm.bathrooms}
+                  onChange={e => setPropForm({ ...propForm, bathrooms: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Floor Area (m²)</label>
+                <input type="number" step="0.01" value={propForm.square_feet}
+                  onChange={e => setPropForm({ ...propForm, square_feet: e.target.value })}
+                  placeholder="e.g. 250"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Year Built</label>
+                <input type="number" value={propForm.year_built}
+                  onChange={e => setPropForm({ ...propForm, year_built: e.target.value })}
+                  placeholder="e.g. 2008"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          </div>
+
+          <div className={`rounded-xl border-2 p-4 ${propForm.purpose === 'rent' ? 'border-blue-200 bg-blue-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
+            {propForm.purpose === 'rent' ? (
+              <div>
+                <p className="text-sm font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                  <Home size={15} /> Rental Pricing
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Monthly Rent (USD) *</label>
+                  <input required type="number" step="0.01" min="0" value={propForm.monthly_rent}
+                    onChange={e => setPropForm({ ...propForm, monthly_rent: e.target.value })}
+                    placeholder="e.g. 800"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                  <p className="text-xs text-slate-400 mt-1">Amount the tenant pays each month in USD.</p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-2">
+                  <Tag size={15} /> Sale Pricing
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Asking Price (USD) *</label>
+                  <input required type="number" step="0.01" min="0" value={propForm.current_value}
+                    onChange={e => setPropForm({ ...propForm, current_value: e.target.value })}
+                    placeholder="e.g. 185000"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white" />
+                  <p className="text-xs text-slate-400 mt-1">The listed selling price in USD.</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            <textarea rows={3} value={propForm.description}
+              onChange={e => setPropForm({ ...propForm, description: e.target.value })}
+              placeholder="Describe the property — features, location notes, fixtures, borehole, solar, security..."
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={() => { setShowAddProperty(false); setPropFormError('') }}
+              className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+              Cancel
+            </button>
+            <button type="submit" disabled={savingProperty}
+              className={`px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-60 transition-colors ${
+                propForm.purpose === 'rent' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700'
+              }`}>
+              {savingProperty ? 'Saving...' : `Add ${propForm.purpose === 'rent' ? 'Rental' : 'Sale'} Property`}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
