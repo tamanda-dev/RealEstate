@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Building2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
@@ -98,6 +98,11 @@ export default function LoginPage() {
                   placeholder="Enter your password"
                   className="w-full px-4 py-3 rounded-lg border border-gray-200 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 />
+                <div className="text-right mt-1.5">
+                  <Link to="/forgot-password" className="text-xs text-blue-600 hover:underline">
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
 
               {error && (

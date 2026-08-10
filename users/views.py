@@ -1,7 +1,13 @@
+from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
+from rest_framework.views import APIView
 from .models import User
 from .serializers import (UserSerializer, UserCreateSerializer, UserUpdateSerializer,
                            SelfProfileUpdateSerializer)
@@ -131,3 +137,68 @@ class UserViewSet(viewsets.ModelViewSet):
             'inactive': total - active,
             'by_role': by_role,
         })
+
+
+class PasswordResetRequestView(APIView):
+    """Public endpoint: emails a reset link if the address matches an active account.
+
+    Always returns the same generic message regardless of whether the email
+    matched, so this can't be used to enumerate which addresses have accounts.
+    """
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        email = (request.data.get('email') or '').strip()
+        if not email:
+            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?uid={uid}&token={token}"
+            send_mail(
+                subject='Reset your password',
+                message=(
+                    f"Hi {user.get_full_name() or user.username},\n\n"
+                    "We received a request to reset your password. Click the link "
+                    f"below to choose a new one:\n\n{reset_link}\n\n"
+                    "If you didn't request this, you can safely ignore this email "
+                    "— your password will not change."
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        return Response({
+            'message': 'If an account with that email exists, a password reset link has been sent.'
+        })
+
+
+class PasswordResetConfirmView(APIView):
+    """Public endpoint: sets a new password given a valid uid/token pair from the email link."""
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        uid = request.data.get('uid') or ''
+        token = request.data.get('token') or ''
+        new_password = request.data.get('new_password') or ''
+
+        if len(new_password) < 8:
+            return Response({'error': 'Password must be at least 8 characters.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(pk=force_str(urlsafe_base64_decode(uid)))
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+
+        if user is None or not default_token_generator.check_token(user, token):
+            return Response({'error': 'This password reset link is invalid or has expired.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+        return Response({'message': 'Your password has been reset successfully. You can now log in.'})

@@ -43,6 +43,9 @@ export const authAPI = {
   refresh: (refresh) => api.post('/auth/token/refresh/', { refresh }),
   me: () => api.get('/users/me/'),
   register: (data) => api.post('/users/', data),
+  requestPasswordReset: (email) => api.post('/users/password-reset/', { email }),
+  confirmPasswordReset: (uid, token, new_password) =>
+    api.post('/users/password-reset/confirm/', { uid, token, new_password }),
 }
 
 // ── Properties ────────────────────────────────────────────────────────────────
