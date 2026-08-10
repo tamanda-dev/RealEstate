@@ -429,6 +429,7 @@ export const amlAPI = {
     verify: (id, validYears) => api.post(`/aml/kyc-profiles/${id}/verify/`, { valid_years: validYears }),
     reject: (id) => api.post(`/aml/kyc-profiles/${id}/reject/`),
     recalculateRisk: (id) => api.post(`/aml/kyc-profiles/${id}/recalculate-risk/`),
+    screenWatchlist: (id) => api.post(`/aml/kyc-profiles/${id}/screen-watchlist/`),
     stats: () => api.get('/aml/kyc-profiles/dashboard_stats/'),
   },
   monitoredTransactions: {
@@ -437,5 +438,22 @@ export const amlAPI = {
     reportToFiu: (id, notes) => api.post(`/aml/monitored-transactions/${id}/report-to-fiu/`, { notes }),
     goamlExport: (id) => api.get(`/aml/monitored-transactions/${id}/goaml-export/`, { responseType: 'blob' }),
     stats: () => api.get('/aml/monitored-transactions/dashboard_stats/'),
+  },
+  beneficialOwners: {
+    list: (p) => api.get('/aml/beneficial-owners/', { params: p }),
+    create: (d) => api.post('/aml/beneficial-owners/', d),
+    update: (id, d) => api.patch(`/aml/beneficial-owners/${id}/`, d),
+    delete: (id) => api.delete(`/aml/beneficial-owners/${id}/`),
+  },
+  watchlist: {
+    list: (p) => api.get('/aml/watchlist-entries/', { params: p }),
+    create: (d) => api.post('/aml/watchlist-entries/', d),
+    update: (id, d) => api.patch(`/aml/watchlist-entries/${id}/`, d),
+    delete: (id) => api.delete(`/aml/watchlist-entries/${id}/`),
+    importCsv: (file) => {
+      const form = new FormData()
+      form.append('file', file)
+      return api.post('/aml/watchlist-entries/import-csv/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    },
   },
 }

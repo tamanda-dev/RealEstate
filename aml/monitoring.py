@@ -52,6 +52,12 @@ def screen_transaction(*, subject, amount, currency, payment_method, transaction
             flags.append('HIGH_RISK_JURISDICTION')
         if subject.status != 'verified':
             flags.append('KYC_NOT_VERIFIED')
+        if subject.residency_status == 'non_resident':
+            flags.append('NON_RESIDENT_BUYER')
+        if subject.watchlist_matches:
+            flags.append('WATCHLIST_MATCH')
+        if subject.entity_type != 'individual' and not subject.beneficial_owners.exists():
+            flags.append('BENEFICIAL_OWNERSHIP_MISSING')
 
         # Structuring: several transactions by the same subject in a short window whose
         # combined total clears the CTR threshold, even though none individually does.
@@ -77,8 +83,13 @@ def screen_transaction(*, subject, amount, currency, payment_method, transaction
     )
 
     if subject:
+        # PEP/jurisdiction/watchlist/beneficial-ownership gaps are already priced into the
+        # profile's own calculate_risk_score() — only bump for signals specific to *this*
+        # transaction, so a subject's score doesn't get re-penalized for the same static
+        # fact every time they make another payment.
         bump = {'LARGE_TRANSACTION': 10, 'LARGE_CASH': 10, 'STRUCTURING': 25,
-                'PEP_INVOLVED': 0, 'HIGH_RISK_JURISDICTION': 0, 'KYC_NOT_VERIFIED': 5}
+                'PEP_INVOLVED': 0, 'HIGH_RISK_JURISDICTION': 0, 'KYC_NOT_VERIFIED': 5,
+                'NON_RESIDENT_BUYER': 0, 'WATCHLIST_MATCH': 0, 'BENEFICIAL_OWNERSHIP_MISSING': 0}
         points = sum(bump.get(f, 5) for f in flags)
         if points:
             subject.bump_risk_score(points)
@@ -87,9 +98,9 @@ def screen_transaction(*, subject, amount, currency, payment_method, transaction
 
 
 def _risk_level_for_flags(flags):
-    if 'STRUCTURING' in flags or ('PEP_INVOLVED' in flags and 'LARGE_TRANSACTION' in flags):
+    if 'WATCHLIST_MATCH' in flags or 'STRUCTURING' in flags or ('PEP_INVOLVED' in flags and 'LARGE_TRANSACTION' in flags):
         return 'critical'
-    if 'PEP_INVOLVED' in flags or 'HIGH_RISK_JURISDICTION' in flags:
+    if 'PEP_INVOLVED' in flags or 'HIGH_RISK_JURISDICTION' in flags or 'BENEFICIAL_OWNERSHIP_MISSING' in flags:
         return 'high'
     if len(flags) >= 2:
         return 'high'

@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Sum
+from django.utils import timezone
 from .models import Listing, Contact, Offer, CommissionStructure, Transaction
 from .serializers import (ListingSerializer, ContactSerializer, OfferSerializer,
                            CommissionStructureSerializer, CommissionCalculationSerializer,
@@ -90,6 +91,22 @@ class OfferViewSet(viewsets.ModelViewSet):
     serializer_class = OfferSerializer
     filterset_fields = ['status', 'listing', 'buyer']
     ordering_fields = ['offer_amount', 'created_at', 'closing_date']
+
+    def perform_create(self, serializer):
+        offer = serializer.save()
+        # Screen buyers at offer stage, not just at final sale closing — a suspicious buyer
+        # should be flagged before an accepted offer becomes a Transaction, since goAML/FIU
+        # CDD expects due diligence at the start of the relationship, not only at completion.
+        from aml.monitoring import screen_transaction, get_or_create_profile_for_contact
+        # Offer has no explicit payment_method field; financing_contingency=False is the
+        # closest signal we have that a buyer intends to pay cash rather than via mortgage.
+        payment_method = 'cash' if not offer.financing_contingency else 'financing'
+        screen_transaction(
+            subject=get_or_create_profile_for_contact(offer.buyer),
+            amount=offer.offer_amount, currency='USD', payment_method=payment_method,
+            transaction_date=timezone.now().date(), source_type='buyer_offer', source_id=offer.pk,
+            description=f'Buyer offer — {offer.listing.property.name if offer.listing else ""}',
+        )
 
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):

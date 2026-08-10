@@ -1,16 +1,21 @@
+import csv
 import datetime
+import io
 
 from django.db.models import Sum
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from .models import KYCProfile, MonitoredTransaction
-from .serializers import KYCProfileSerializer, MonitoredTransactionSerializer
+from .models import KYCProfile, MonitoredTransaction, BeneficialOwner, WatchlistEntry
+from .serializers import (KYCProfileSerializer, MonitoredTransactionSerializer,
+                           BeneficialOwnerSerializer, WatchlistEntrySerializer)
 from .monitoring import generate_goaml_xml
+from .screening import run_watchlist_screening, screen_name_against_watchlist
 
 
 class IsComplianceOfficer(BasePermission):
@@ -33,8 +38,21 @@ class KYCProfileViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         profile = serializer.save()
-        profile.calculate_risk_score()
-        profile.save(update_fields=['risk_score', 'risk_rating'])
+        # Sanctions & PEP Screening happens automatically at intake, not as a separate
+        # manual step — this is what "automatically" in the CDD requirement means in
+        # practice: every new subject is screened the moment their file is created.
+        run_watchlist_screening(profile)
+
+    @action(detail=True, methods=['post'], url_path='screen-watchlist')
+    def screen_watchlist(self, request, pk=None):
+        """Re-run watchlist screening — use after correcting a name or when the watchlist
+        itself has been refreshed with new entries."""
+        profile = self.get_object()
+        matches = run_watchlist_screening(profile)
+        return Response({
+            'matches': matches,
+            'profile': KYCProfileSerializer(profile).data,
+        })
 
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
@@ -132,3 +150,88 @@ class MonitoredTransactionViewSet(viewsets.ModelViewSet):
             'total_flagged_amount': float(
                 qs.filter(status='flagged').aggregate(t=Sum('amount'))['t'] or 0),
         })
+
+
+class BeneficialOwnerViewSet(viewsets.ModelViewSet):
+    """CDD for trust/corporate buyers — the natural persons who ultimately own/control
+    a KYCProfile with entity_type != individual."""
+    queryset = BeneficialOwner.objects.select_related('kyc_profile')
+    serializer_class = BeneficialOwnerSerializer
+    permission_classes = [IsComplianceOfficer]
+    filterset_fields = ['kyc_profile']
+
+    def perform_create(self, serializer):
+        # A newly-added beneficial owner's own name is screened too — sanctions lists target
+        # the natural person, not just the entity name on the property transaction.
+        owner = serializer.save(watchlist_matches=screen_name_against_watchlist(
+            serializer.validated_data.get('full_name', '')))
+        self._recompute_parent(owner)
+
+    def perform_update(self, serializer):
+        full_name = serializer.validated_data.get('full_name', serializer.instance.full_name)
+        owner = serializer.save(watchlist_matches=screen_name_against_watchlist(full_name))
+        self._recompute_parent(owner)
+
+    def perform_destroy(self, instance):
+        profile = instance.kyc_profile
+        instance.delete()
+        profile.calculate_risk_score()
+        profile.save(update_fields=['risk_score', 'risk_rating'])
+
+    @staticmethod
+    def _recompute_parent(owner):
+        owner.kyc_profile.calculate_risk_score()
+        owner.kyc_profile.save(update_fields=['risk_score', 'risk_rating'])
+
+
+class WatchlistEntryViewSet(viewsets.ModelViewSet):
+    """Sanctions/PEP watchlist compliance staff maintain locally (see aml/screening.py for
+    why — no live commercial screening provider is connected)."""
+    queryset = WatchlistEntry.objects.all()
+    serializer_class = WatchlistEntrySerializer
+    permission_classes = [IsComplianceOfficer]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    filterset_fields = ['list_source', 'entry_type', 'is_active']
+    search_fields = ['full_name', 'aliases', 'country']
+
+    @action(detail=False, methods=['post'], url_path='import-csv')
+    def import_csv(self, request):
+        """Bulk-load watchlist entries from a CSV (columns: full_name, aliases, list_source,
+        entry_type, country, date_of_birth, notes — aliases pipe-separated). Sourced from the
+        free public OFAC SDN / UN Consolidated List exports, or a locally-maintained PEP list."""
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'error': 'file is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            text = upload.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'error': 'File must be UTF-8 encoded CSV'}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid_sources = {c[0] for c in WatchlistEntry.SOURCE_CHOICES}
+        valid_types = {c[0] for c in WatchlistEntry.ENTRY_TYPE_CHOICES}
+        reader = csv.DictReader(io.StringIO(text))
+        rows = []
+        for i, row in enumerate(reader, start=2):
+            keys = {k.strip().lower(): (v or '').strip() for k, v in row.items() if k}
+            full_name = keys.get('full_name')
+            if not full_name:
+                return Response({'error': f'Row {i}: full_name is required'},
+                                 status=status.HTTP_400_BAD_REQUEST)
+            list_source = keys.get('list_source', 'other') or 'other'
+            entry_type = keys.get('entry_type', 'sanction') or 'sanction'
+            dob = keys.get('date_of_birth') or None
+            rows.append(WatchlistEntry(
+                full_name=full_name,
+                aliases=keys.get('aliases', '').replace('|', '\n'),
+                list_source=list_source if list_source in valid_sources else 'other',
+                entry_type=entry_type if entry_type in valid_types else 'sanction',
+                country=keys.get('country', ''),
+                date_of_birth=dob,
+                notes=keys.get('notes', ''),
+            ))
+
+        if not rows:
+            return Response({'error': 'No data rows found in file'}, status=status.HTTP_400_BAD_REQUEST)
+
+        WatchlistEntry.objects.bulk_create(rows)
+        return Response({'imported': len(rows)}, status=status.HTTP_201_CREATED)
