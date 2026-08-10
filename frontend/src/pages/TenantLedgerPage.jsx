@@ -155,8 +155,9 @@ export default function TenantLedgerPage() {
   }
 
   const monthlyData = landlordLedger?.monthly ?? []
-  const chartData = MONTHS.map((m, i) => {
-    const row = monthlyData.find(d => d.month === i + 1 || d.month_name === m) ?? {}
+  const chartData = MONTHS.map((m) => {
+    // Backend returns month as the abbreviated string ("Jan".."Dec"), matching MONTHS directly.
+    const row = monthlyData.find(d => d.month === m) ?? {}
     return {
       month: m,
       gross_rent: Number(row.gross_rent ?? 0),
@@ -330,10 +331,32 @@ export default function TenantLedgerPage() {
             <>
               {/* Summary cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard icon={Building2} label="Properties" value={landlordLedger.properties_count ?? '-'} color="blue" />
+                <StatCard icon={Building2} label="Properties" value={landlordLedger.properties?.length ?? 0} color="blue" />
                 <StatCard icon={DollarSign} label="Annual Gross Rent" value={`$${Number(landlordLedger.annual_gross_rent ?? 0).toLocaleString()}`} color="blue" />
                 <StatCard icon={TrendingDown} label="Annual Net Disbursed" value={`$${Number(landlordLedger.annual_net_disbursed ?? 0).toLocaleString()}`} color="green" />
-                <StatCard icon={Users} label="Total Deductions" value={`$${Number(landlordLedger.total_deductions ?? 0).toLocaleString()}`} color="orange" />
+                <StatCard icon={Users} label="Total Deductions" value={`$${Number(landlordLedger.annual_deductions ?? 0).toLocaleString()}`} color="orange" />
+              </div>
+
+              {/* Property list */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+                <h3 className="font-semibold text-slate-800 mb-2 text-sm">
+                  {landlordLedger.owner_name}'s Properties
+                </h3>
+                {(landlordLedger.properties ?? []).length === 0 ? (
+                  <p className="text-sm text-slate-400">
+                    No properties are assigned to this owner. Set the property's owner under Properties before a ledger can show data for them.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {landlordLedger.properties.map((p) => (
+                      <span key={p.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-sm text-slate-700">
+                        <Building2 size={13} className="text-slate-400" />
+                        {p.name}
+                        <span className="text-slate-400">· ${Number(p.monthly_rent ?? 0).toLocaleString()}/mo</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Line chart */}

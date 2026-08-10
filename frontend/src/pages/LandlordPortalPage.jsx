@@ -122,6 +122,15 @@ export default function LandlordPortalPage() {
         </div>
       )
     },
+    {
+      key: 'paid_date', label: 'Payment Date',
+      render: (v, row) => v
+        ? <div>
+            <span className="text-sm text-slate-700">{new Date(v).toLocaleDateString()}</span>
+            {row.payment_method && <div className="text-xs text-slate-400 capitalize">{row.payment_method.replace(/_/g, ' ')}</div>}
+          </div>
+        : <span className="text-slate-400">—</span>
+    },
     { key: 'status', label: 'Status', render: v => <Badge value={v} /> },
     {
       key: 'actions', label: '',

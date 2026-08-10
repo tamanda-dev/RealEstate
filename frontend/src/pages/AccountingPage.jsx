@@ -20,7 +20,7 @@ export default function AccountingPage() {
   const [error, setError] = useState('')
 
   const [accountModal, setAccountModal] = useState(false)
-  const [accountForm, setAccountForm] = useState({ name: '', code: '', account_type: 'asset', subtype: '', description: '' })
+  const [accountForm, setAccountForm] = useState({ name: '', account_number: '', account_type: 'asset', subtype: 'other', description: '' })
   const [savingAccount, setSavingAccount] = useState(false)
 
   const fetchAccounts = async () => {
@@ -278,10 +278,16 @@ export default function AccountingPage() {
     try {
       await accountingAPI.accounts.create(accountForm)
       setAccountModal(false)
-      setAccountForm({ name: '', code: '', account_type: 'asset', subtype: '', description: '' })
+      setAccountForm({ name: '', account_number: '', account_type: 'asset', subtype: 'other', description: '' })
       fetchAccounts()
     } catch (err) {
-      alert(err?.response?.data?.detail ?? 'Failed to create account.')
+      const data = err?.response?.data
+      // DRF validation errors come back as {field: [messages]}, not {detail: ...} —
+      // surface the real reason instead of a generic message that hides it.
+      const fieldError = data && typeof data === 'object'
+        ? Object.entries(data).map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(' ') : msgs}`).join('\n')
+        : null
+      alert(fieldError || data?.detail || 'Failed to create account.')
     } finally {
       setSavingAccount(false)
     }
@@ -291,7 +297,7 @@ export default function AccountingPage() {
   const fmtDate = (d) => d ? new Date(d).toLocaleString() : '—'
 
   const accountColumns = [
-    { key: 'code', label: 'Code' },
+    { key: 'account_number', label: 'Code' },
     { key: 'name', label: 'Account Name' },
     { key: 'account_type', label: 'Type', render: (v) => <Badge value={v} /> },
     { key: 'subtype', label: 'Subtype', render: (v) => v ?? '—' },
@@ -750,7 +756,7 @@ export default function AccountingPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Account Code *</label>
-              <input required value={accountForm.code} onChange={(e) => setAccountForm({ ...accountForm, code: e.target.value })}
+              <input required value={accountForm.account_number} onChange={(e) => setAccountForm({ ...accountForm, account_number: e.target.value })}
                 placeholder="e.g. 1001"
                 className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
@@ -765,9 +771,16 @@ export default function AccountingPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Subtype</label>
-              <input value={accountForm.subtype} onChange={(e) => setAccountForm({ ...accountForm, subtype: e.target.value })}
-                placeholder="e.g. current, fixed"
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <select value={accountForm.subtype} onChange={(e) => setAccountForm({ ...accountForm, subtype: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                {[
+                  ['trust', 'Trust Account'], ['operating', 'Operating'], ['savings', 'Savings'],
+                  ['checking', 'Checking'], ['accounts_receivable', 'Accounts Receivable'],
+                  ['accounts_payable', 'Accounts Payable'], ['other', 'Other'],
+                ].map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>

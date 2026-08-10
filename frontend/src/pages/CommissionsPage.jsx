@@ -56,7 +56,7 @@ export default function CommissionsPage() {
     { key: 'month', label: 'Month', render: v => MONTHS[(v ?? 1) - 1] },
     { key: 'rental_commission', label: 'Rental Commission', render: v => `$${Number(v ?? 0).toLocaleString()}` },
     { key: 'vat_on_rental', label: 'VAT', render: v => `$${Number(v ?? 0).toLocaleString()}` },
-    { key: 'net_rental_commission', label: 'Net Rental', render: v => <span className="font-semibold text-green-700">${Number(v ?? 0).toLocaleString()}</span> },
+    { key: 'net_rental_commission', label: 'Net Commission', render: v => <span className="font-semibold text-green-700">${Number(v ?? 0).toLocaleString()}</span> },
     { key: 'running_total', label: 'Running Total', render: v => <span className="font-semibold text-blue-700">${Number(v ?? 0).toLocaleString()}</span> },
   ]
 
