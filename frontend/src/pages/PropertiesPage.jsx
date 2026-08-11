@@ -37,6 +37,17 @@ const emptyForm = {
 
 const fmtUSD = (v) => v ? `$${Number(v).toLocaleString('en-US')}` : '—'
 
+const fieldErrorText = (errors, field) => {
+  const v = errors?.[field]
+  if (!v) return null
+  return Array.isArray(v) ? v.join(' ') : String(v)
+}
+
+const FieldError = ({ errors, field }) => {
+  const text = fieldErrorText(errors, field)
+  return text ? <p className="text-xs text-red-600 mt-1">{text}</p> : null
+}
+
 const isForSale = (status) => status === 'listed_for_sale' || status === 'sold'
 
 export default function PropertiesPage() {
@@ -51,6 +62,7 @@ export default function PropertiesPage() {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+  const [formErrors, setFormErrors] = useState({})
 
   const fetchProperties = async () => {
     setLoading(true)
@@ -86,6 +98,7 @@ export default function PropertiesPage() {
     setEditProp(null)
     setForm(emptyForm)
     setFormError('')
+    setFormErrors({})
     setShowAdd(true)
   }
 
@@ -105,6 +118,7 @@ export default function PropertiesPage() {
     })
     setEditProp(p)
     setFormError('')
+    setFormErrors({})
     setShowAdd(true)
   }
 
@@ -112,6 +126,7 @@ export default function PropertiesPage() {
     e.preventDefault()
     setSaving(true)
     setFormError('')
+    setFormErrors({})
     try {
       const { purpose, ...payload } = form
       if (purpose === 'rent') delete payload.current_value
@@ -127,11 +142,13 @@ export default function PropertiesPage() {
       fetchProperties()
     } catch (err) {
       const data = err?.response?.data
-      setFormError(
-        typeof data === 'string' ? data
-        : data?.detail ?? Object.entries(data ?? {}).map(([k, v]) => `${k}: ${v}`).join(' | ')
-        ?? 'Failed to save property.'
-      )
+      if (data && typeof data === 'object') {
+        setFormErrors(data)
+        const generic = data.detail ?? data.non_field_errors
+        if (generic) setFormError(Array.isArray(generic) ? generic.join(' ') : generic)
+      } else {
+        setFormError(typeof data === 'string' ? data : 'Failed to save property.')
+      }
     } finally {
       setSaving(false)
     }
@@ -320,24 +337,28 @@ export default function PropertiesPage() {
                 <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                   placeholder="e.g. Borrowdale Cottage, CBD Office Block A"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="name" />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Street Address *</label>
                 <input required value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}
                   placeholder="e.g. 14 Borrowdale Road, Borrowdale"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="address" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">City *</label>
                 <input required value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}
                   placeholder="e.g. Harare"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="city" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Province</label>
                 <input value={form.state} onChange={e => setForm({ ...form, state: e.target.value })}
                   placeholder="e.g. Mashonaland East"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="state" />
               </div>
             </div>
           </div>
@@ -367,26 +388,30 @@ export default function PropertiesPage() {
                 <input type="number" min="0" value={form.bedrooms}
                   onChange={e => setForm({ ...form, bedrooms: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="bedrooms" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Bathrooms</label>
                 <input type="number" min="0" step="0.5" value={form.bathrooms}
                   onChange={e => setForm({ ...form, bathrooms: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="bathrooms" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Floor Area (m²)</label>
-                <input type="number" step="0.01" value={form.square_feet}
+                <label className="block text-sm font-medium text-slate-700 mb-1">Floor Area (m², optional)</label>
+                <input type="number" step="0.01" min="0" value={form.square_feet}
                   onChange={e => setForm({ ...form, square_feet: e.target.value })}
                   placeholder="e.g. 250"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="square_feet" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Year Built</label>
-                <input type="number" value={form.year_built}
+                <label className="block text-sm font-medium text-slate-700 mb-1">Year Built (optional)</label>
+                <input type="number" min="0" value={form.year_built}
                   onChange={e => setForm({ ...form, year_built: e.target.value })}
                   placeholder="e.g. 2008"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={formErrors} field="year_built" />
               </div>
             </div>
           </div>
@@ -404,6 +429,7 @@ export default function PropertiesPage() {
                     onChange={e => setForm({ ...form, monthly_rent: e.target.value })}
                     placeholder="e.g. 800"
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                  <FieldError errors={formErrors} field="monthly_rent" />
                   <p className="text-xs text-slate-400 mt-1">Amount the tenant pays each month in USD.</p>
                 </div>
               </div>
@@ -418,6 +444,7 @@ export default function PropertiesPage() {
                     onChange={e => setForm({ ...form, current_value: e.target.value })}
                     placeholder="e.g. 185000"
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white" />
+                  <FieldError errors={formErrors} field="current_value" />
                   <p className="text-xs text-slate-400 mt-1">The listed selling price in USD.</p>
                 </div>
               </div>
@@ -431,6 +458,7 @@ export default function PropertiesPage() {
               onChange={e => setForm({ ...form, description: e.target.value })}
               placeholder="Describe the property — features, location notes, fixtures, borehole, solar, security..."
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            <FieldError errors={formErrors} field="description" />
           </div>
 
           <div className="flex justify-end gap-3 pt-2">

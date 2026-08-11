@@ -113,7 +113,7 @@ export default function PropertyDetailPage() {
             <table className="min-w-full divide-y divide-gray-100">
               <thead>
                 <tr className="bg-gray-50">
-                  {['Unit #', 'Type', 'Bedrooms', 'Bathrooms', 'Area (sqft)', 'Rent', 'Status'].map((h) => (
+                  {['Unit #', 'Type', 'Bedrooms', 'Bathrooms', 'Area (m²)', 'Rent', 'Status'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
                   ))}
                 </tr>
@@ -125,7 +125,7 @@ export default function PropertyDetailPage() {
                     <td className="px-4 py-3 text-sm text-gray-600">{u.unit_type ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{u.bedrooms ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{u.bathrooms ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{u.area_sqft ?? '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{u.square_feet ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{fmtCurrency(u.monthly_rent)}</td>
                     <td className="px-4 py-3"><Badge value={u.status} /></td>
                   </tr>

@@ -49,11 +49,27 @@ export const authAPI = {
 }
 
 // ── Properties ────────────────────────────────────────────────────────────────
+// Optional numeric fields on the Property model — empty strings from a blank
+// form input fail DRF's DecimalField/IntegerField validation ("A valid number/
+// integer is required."), even though the field itself is optional. Strip them
+// out entirely so an untouched field is simply omitted rather than sent as ''.
+const OPTIONAL_NUMERIC_PROPERTY_FIELDS = [
+  'bedrooms', 'bathrooms', 'square_feet', 'lot_size', 'year_built',
+  'purchase_price', 'current_value', 'monthly_rent',
+]
+const sanitizePropertyPayload = (data) => {
+  const payload = { ...data }
+  OPTIONAL_NUMERIC_PROPERTY_FIELDS.forEach((field) => {
+    if (payload[field] === '') delete payload[field]
+  })
+  return payload
+}
+
 export const propertiesAPI = {
   list: (params) => api.get('/properties/', { params }),
   get: (id) => api.get(`/properties/${id}/`),
-  create: (data) => api.post('/properties/', data),
-  update: (id, data) => api.patch(`/properties/${id}/`, data),
+  create: (data) => api.post('/properties/', sanitizePropertyPayload(data)),
+  update: (id, data) => api.patch(`/properties/${id}/`, sanitizePropertyPayload(data)),
   delete: (id) => api.delete(`/properties/${id}/`),
   stats: () => api.get('/properties/dashboard_stats/'),
   units: (id) => api.get(`/properties/${id}/units/`),

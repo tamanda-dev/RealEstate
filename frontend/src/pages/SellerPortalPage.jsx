@@ -15,6 +15,17 @@ import Modal from '../components/Modal'
 const fmtUSD = (v) => v != null ? `$${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
+const fieldErrorText = (errors, field) => {
+  const v = errors?.[field]
+  if (!v) return null
+  return Array.isArray(v) ? v.join(' ') : String(v)
+}
+
+const FieldError = ({ errors, field }) => {
+  const text = fieldErrorText(errors, field)
+  return text ? <p className="text-xs text-red-600 mt-1">{text}</p> : null
+}
+
 const TABS = ['My Portfolio', 'Rental Statements', 'Invoices', 'Offers Received', 'Listing Performance', 'Account Details']
 const currentYear = new Date().getFullYear()
 
@@ -55,10 +66,12 @@ export default function SellerPortalPage() {
   const [propForm, setPropForm] = useState(emptyPropertyForm)
   const [savingProperty, setSavingProperty] = useState(false)
   const [propFormError, setPropFormError] = useState('')
+  const [propFormErrors, setPropFormErrors] = useState({})
 
   const openAddProperty = () => {
     setPropForm(emptyPropertyForm)
     setPropFormError('')
+    setPropFormErrors({})
     setShowAddProperty(true)
   }
 
@@ -76,6 +89,7 @@ export default function SellerPortalPage() {
     e.preventDefault()
     setSavingProperty(true)
     setPropFormError('')
+    setPropFormErrors({})
     try {
       const { purpose, ...payload } = propForm
       if (purpose === 'rent') delete payload.current_value
@@ -88,11 +102,13 @@ export default function SellerPortalPage() {
       loadAll()
     } catch (err) {
       const data = err?.response?.data
-      setPropFormError(
-        typeof data === 'string' ? data
-        : data?.detail ?? Object.entries(data ?? {}).map(([k, v]) => `${k}: ${v}`).join(' | ')
-        ?? 'Failed to add property.'
-      )
+      if (data && typeof data === 'object') {
+        setPropFormErrors(data)
+        const generic = data.detail ?? data.non_field_errors
+        if (generic) setPropFormError(Array.isArray(generic) ? generic.join(' ') : generic)
+      } else {
+        setPropFormError(typeof data === 'string' ? data : 'Failed to add property.')
+      }
     } finally {
       setSavingProperty(false)
     }
@@ -538,7 +554,7 @@ export default function SellerPortalPage() {
       )}
 
       {/* ── Add Property Modal ── */}
-      <Modal open={showAddProperty} onClose={() => { setShowAddProperty(false); setPropFormError('') }}
+      <Modal open={showAddProperty} onClose={() => { setShowAddProperty(false); setPropFormError(''); setPropFormErrors({}) }}
         title="Add Property" size="lg">
         <form onSubmit={handleAddProperty} className="space-y-5">
           {propFormError && (
@@ -579,31 +595,35 @@ export default function SellerPortalPage() {
                 <input required value={propForm.name} onChange={e => setPropForm({ ...propForm, name: e.target.value })}
                   placeholder="e.g. Borrowdale Cottage, CBD Office Block A"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="name" />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Street Address *</label>
                 <input required value={propForm.address} onChange={e => setPropForm({ ...propForm, address: e.target.value })}
                   placeholder="e.g. 14 Borrowdale Road, Borrowdale"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="address" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">City *</label>
                 <input required value={propForm.city} onChange={e => setPropForm({ ...propForm, city: e.target.value })}
                   placeholder="e.g. Harare"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="city" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Province</label>
                 <input value={propForm.state} onChange={e => setPropForm({ ...propForm, state: e.target.value })}
                   placeholder="e.g. Mashonaland East"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="state" />
               </div>
             </div>
           </div>
 
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Property Details</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Property Type *</label>
                 <select required value={propForm.property_type} onChange={e => setPropForm({ ...propForm, property_type: e.target.value })}
@@ -625,26 +645,30 @@ export default function SellerPortalPage() {
                 <input type="number" min="0" value={propForm.bedrooms}
                   onChange={e => setPropForm({ ...propForm, bedrooms: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="bedrooms" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Bathrooms</label>
                 <input type="number" min="0" step="0.5" value={propForm.bathrooms}
                   onChange={e => setPropForm({ ...propForm, bathrooms: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="bathrooms" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Floor Area (m²)</label>
-                <input type="number" step="0.01" value={propForm.square_feet}
+              <div className="col-span-2 md:col-span-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Floor Area (m², optional)</label>
+                <input type="number" step="0.01" min="0" value={propForm.square_feet}
                   onChange={e => setPropForm({ ...propForm, square_feet: e.target.value })}
                   placeholder="e.g. 250"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="square_feet" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Year Built</label>
-                <input type="number" value={propForm.year_built}
+              <div className="col-span-2 md:col-span-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Year Built (optional)</label>
+                <input type="number" min="0" value={propForm.year_built}
                   onChange={e => setPropForm({ ...propForm, year_built: e.target.value })}
                   placeholder="e.g. 2008"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <FieldError errors={propFormErrors} field="year_built" />
               </div>
             </div>
           </div>
@@ -661,6 +685,7 @@ export default function SellerPortalPage() {
                     onChange={e => setPropForm({ ...propForm, monthly_rent: e.target.value })}
                     placeholder="e.g. 800"
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+                  <FieldError errors={propFormErrors} field="monthly_rent" />
                   <p className="text-xs text-slate-400 mt-1">Amount the tenant pays each month in USD.</p>
                 </div>
               </div>
@@ -675,6 +700,7 @@ export default function SellerPortalPage() {
                     onChange={e => setPropForm({ ...propForm, current_value: e.target.value })}
                     placeholder="e.g. 185000"
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white" />
+                  <FieldError errors={propFormErrors} field="current_value" />
                   <p className="text-xs text-slate-400 mt-1">The listed selling price in USD.</p>
                 </div>
               </div>
@@ -687,10 +713,11 @@ export default function SellerPortalPage() {
               onChange={e => setPropForm({ ...propForm, description: e.target.value })}
               placeholder="Describe the property — features, location notes, fixtures, borehole, solar, security..."
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            <FieldError errors={propFormErrors} field="description" />
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => { setShowAddProperty(false); setPropFormError('') }}
+            <button type="button" onClick={() => { setShowAddProperty(false); setPropFormError(''); setPropFormErrors({}) }}
               className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
               Cancel
             </button>

@@ -10,6 +10,17 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import Modal from '../components/Modal'
 
+const fieldErrorText = (errors, field) => {
+  const v = errors?.[field]
+  if (!v) return null
+  return Array.isArray(v) ? v.join(' ') : String(v)
+}
+
+const FieldError = ({ errors, field }) => {
+  const text = fieldErrorText(errors, field)
+  return text ? <p className="text-xs text-red-600 mt-1">{text}</p> : null
+}
+
 // ── Role definitions ──────────────────────────────────────────────────────────
 const STAFF_ROLES = [
   {
@@ -733,6 +744,7 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
   const [propForm, setPropForm] = useState(emptyLandlordPropertyForm)
   const [savingProperty, setSavingProperty] = useState(false)
   const [propError, setPropError] = useState('')
+  const [propErrors, setPropErrors] = useState({})
 
   const setPurpose = (purpose) => {
     setPropForm(f => ({
@@ -746,6 +758,7 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
     e.preventDefault()
     setSavingProperty(true)
     setPropError('')
+    setPropErrors({})
     try {
       const { purpose, ...payload } = propForm
       if (purpose === 'rent') delete payload.current_value
@@ -758,11 +771,13 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
       setMode(null)
     } catch (err) {
       const data = err?.response?.data
-      setPropError(
-        typeof data === 'string' ? data
-        : data?.detail ?? Object.entries(data ?? {}).map(([k, v]) => `${k}: ${v}`).join(' | ')
-        ?? 'Failed to add property.'
-      )
+      if (data && typeof data === 'object') {
+        setPropErrors(data)
+        const generic = data.detail ?? data.non_field_errors
+        setPropError(generic ? (Array.isArray(generic) ? generic.join(' ') : generic) : '')
+      } else {
+        setPropError(typeof data === 'string' ? data : 'Failed to add property.')
+      }
     } finally {
       setSavingProperty(false)
     }
@@ -870,7 +885,7 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
       {/* ── Add new property form ── */}
       {mode === 'new' && (
         <form onSubmit={handleAddProperty} className="space-y-4">
-          <button type="button" onClick={() => { setMode(null); setPropError('') }}
+          <button type="button" onClick={() => { setMode(null); setPropError(''); setPropErrors({}) }}
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
             <ArrowLeft size={12} /> Back
           </button>
@@ -907,18 +922,21 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
               <input required value={propForm.name} onChange={e => setPropForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="e.g. Borrowdale Cottage"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="name" />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">Street Address *</label>
               <input required value={propForm.address} onChange={e => setPropForm(f => ({ ...f, address: e.target.value }))}
                 placeholder="e.g. 14 Borrowdale Road"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="address" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">City *</label>
               <input required value={propForm.city} onChange={e => setPropForm(f => ({ ...f, city: e.target.value }))}
                 placeholder="e.g. Harare"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="city" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">Property Type</label>
@@ -936,12 +954,30 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
               <input type="number" min="0" value={propForm.bedrooms}
                 onChange={e => setPropForm(f => ({ ...f, bedrooms: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="bedrooms" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">Bathrooms</label>
               <input type="number" min="0" step="0.5" value={propForm.bathrooms}
                 onChange={e => setPropForm(f => ({ ...f, bathrooms: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="bathrooms" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Floor Area (m², optional)</label>
+              <input type="number" min="0" step="0.01" value={propForm.square_feet}
+                onChange={e => setPropForm(f => ({ ...f, square_feet: e.target.value }))}
+                placeholder="e.g. 250"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="square_feet" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Year Built (optional)</label>
+              <input type="number" min="0" value={propForm.year_built}
+                onChange={e => setPropForm(f => ({ ...f, year_built: e.target.value }))}
+                placeholder="e.g. 2008"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field="year_built" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">
@@ -954,11 +990,12 @@ function LandlordPropertyStep({ landlord, onFinish, toast }) {
                 }))}
                 placeholder={propForm.purpose === 'rent' ? 'e.g. 800' : 'e.g. 185000'}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <FieldError errors={propErrors} field={propForm.purpose === 'rent' ? 'monthly_rent' : 'current_value'} />
             </div>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => { setMode(null); setPropError('') }}
+            <button type="button" onClick={() => { setMode(null); setPropError(''); setPropErrors({}) }}
               className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
               Cancel
             </button>

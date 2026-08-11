@@ -4,6 +4,10 @@ from .models import Listing, Contact, Offer, CommissionStructure, Transaction
 
 class ListingSerializer(serializers.ModelSerializer):
     property_name = serializers.SerializerMethodField()
+    property_city = serializers.SerializerMethodField()
+    property_bedrooms = serializers.SerializerMethodField()
+    property_bathrooms = serializers.SerializerMethodField()
+    property_sqft = serializers.SerializerMethodField()
     agent_name = serializers.SerializerMethodField()
     offer_count = serializers.SerializerMethodField()
 
@@ -13,6 +17,18 @@ class ListingSerializer(serializers.ModelSerializer):
 
     def get_property_name(self, obj):
         return obj.property.name if obj.property else ''
+
+    def get_property_city(self, obj):
+        return obj.property.city if obj.property else ''
+
+    def get_property_bedrooms(self, obj):
+        return obj.property.bedrooms if obj.property else None
+
+    def get_property_bathrooms(self, obj):
+        return obj.property.bathrooms if obj.property else None
+
+    def get_property_sqft(self, obj):
+        return obj.property.square_feet if obj.property else None
 
     def get_agent_name(self, obj):
         return obj.listing_agent.get_full_name() if obj.listing_agent else ''

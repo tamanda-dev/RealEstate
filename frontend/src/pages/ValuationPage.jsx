@@ -132,8 +132,8 @@ export default function ValuationPage() {
     { key: 'sale_date', label: 'Sale Date', render: (v) => fmtDate(v) },
     { key: 'bedrooms', label: 'Beds', render: (v) => v ?? '—' },
     { key: 'bathrooms', label: 'Baths', render: (v) => v ?? '—' },
-    { key: 'area_sqft', label: 'Area (sqft)', render: (v) => v ?? '—' },
-    { key: 'price_per_sqft', label: '$/sqft', render: (v) => v ? `$${Number(v).toFixed(0)}` : '—' },
+    { key: 'square_feet', label: 'Area (m²)', render: (v) => v ?? '—' },
+    { key: 'price_per_sqft', label: '$/m²', render: (v) => v ? `$${Number(v).toFixed(0)}` : '—' },
   ]
 
   // Prepare chart data

@@ -30,9 +30,10 @@ class UserCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'username', 'email', 'first_name', 'last_name',
+            'id', 'username', 'email', 'first_name', 'last_name',
             'role', 'phone', 'password', 'confirm_password',
         ]
+        read_only_fields = ['id']
 
     def validate(self, data):
         if data['password'] != data.pop('confirm_password'):

@@ -28,7 +28,7 @@ export default function LandlordPortalPage() {
     propertiesAPI.list().then(r => setProperties(Array.isArray(r.data) ? r.data : r.data?.results ?? [])).catch(() => {})
     usersAPI.list().then(r => {
       const all = Array.isArray(r.data) ? r.data : r.data?.results ?? []
-      setOwners(all.filter(u => u.role === 'owner' || u.role === 'admin'))
+      setOwners(all.filter(u => u.role === 'owner' || u.role === 'landlord' || u.role === 'admin'))
     }).catch(() => {})
   }, [])
 
