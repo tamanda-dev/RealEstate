@@ -26,6 +26,19 @@ def _resolve_lead_contact(data):
     return lead, contact
 
 
+def _next_due_dates(users):
+    """Nearest outstanding rent invoice due date per tenant, for the {{due_date}} template
+    variable. Users with no unpaid invoice (landlords, leads, tenants paid up) get ''."""
+    from rent.models import Invoice
+    unpaid = (Invoice.objects
+              .filter(tenant__in=users, status__in=['sent', 'overdue', 'partial'])
+              .order_by('tenant_id', 'due_date'))
+    due_dates = {}
+    for invoice in unpaid:
+        due_dates.setdefault(invoice.tenant_id, invoice.due_date.strftime('%d %B %Y'))
+    return due_dates
+
+
 class EmailTemplateViewSet(viewsets.ModelViewSet):
     queryset = EmailTemplate.objects.all()
     serializer_class = EmailTemplateSerializer
@@ -85,9 +98,14 @@ class EmailMessageViewSet(viewsets.ReadOnlyModelViewSet):
                 return Response({'error': 'Template not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         recipients = User.objects.filter(pk__in=data['recipient_ids']).exclude(email='')
+        due_dates = _next_due_dates(recipients)
         sent, failed = [], []
         for user in recipients:
-            variables = {'name': user.get_full_name() or user.username, 'email': user.email}
+            variables = {
+                'name': user.get_full_name() or user.username,
+                'email': user.email,
+                'due_date': due_dates.get(user.id, ''),
+            }
             if template:
                 subject, body = template.render(variables)
             else:

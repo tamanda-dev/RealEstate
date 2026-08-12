@@ -401,7 +401,7 @@ export default function MessagingPage() {
                   <label className="block text-xs font-medium text-slate-600 mb-1">Message {!selectedTemplateId && '*'}</label>
                   <textarea required={!selectedTemplateId} rows={6} value={emailForm.body}
                     onChange={(e) => setEmailForm((f) => ({ ...f, body: e.target.value }))} className={`${inputCls} resize-none`} />
-                  <p className="text-xs text-slate-400 mt-1">Use {'{{name}}'} or {'{{email}}'} — filled in per recipient.</p>
+                  <p className="text-xs text-slate-400 mt-1">Use {'{{name}}'}, {'{{email}}'} or {'{{due_date}}'} — filled in per recipient. {'{{due_date}}'} is their nearest unpaid rent due date, blank if none.</p>
                 </div>
                 <button type="submit" disabled={sending}
                   className="w-full py-3 rounded-xl text-white font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-60"
@@ -518,7 +518,7 @@ export default function MessagingPage() {
             <textarea required rows={6} value={templateForm.body}
               onChange={(e) => setTemplateForm((f) => ({ ...f, body: e.target.value }))} className={`${inputCls} resize-none`}
               placeholder="Hello {{name}}, ..." />
-            <p className="text-xs text-slate-400 mt-1">Use {'{{name}}'} or {'{{email}}'} for per-recipient values.</p>
+            <p className="text-xs text-slate-400 mt-1">Use {'{{name}}'}, {'{{email}}'} or {'{{due_date}}'} for per-recipient values. {'{{due_date}}'} only fills in on bulk sends.</p>
           </div>
           <div className="flex items-center gap-2">
             <input type="checkbox" id="tpl_active" checked={templateForm.is_active}
