@@ -1,5 +1,9 @@
+import datetime
+import secrets
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -78,3 +82,37 @@ class User(AbstractUser):
     @property
     def is_accountant(self):
         return self.role in ('accountant', 'admin')
+
+
+class PasswordResetOTP(models.Model):
+    """A 6-digit code texted to a user's phone for the SMS branch of forgot-password —
+    the email branch uses Django's built-in uid/token link instead (see users/views.py).
+    Codes are single-use and short-lived; a fresh request invalidates any prior unused code
+    for the same user so only the most recently sent code is ever valid."""
+    OTP_TTL_MINUTES = 10
+    MAX_ATTEMPTS = 5
+
+    user = models.ForeignKey('User', on_delete=models.CASCADE, related_name='password_reset_otps')
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"OTP for {self.user.username} ({'used' if self.is_used else 'active'})"
+
+    @classmethod
+    def generate_for(cls, user):
+        cls.objects.filter(user=user, is_used=False).update(is_used=True)
+        code = f"{secrets.randbelow(10 ** 6):06d}"  # cryptographically secure, not random.randint
+        return cls.objects.create(
+            user=user, code=code,
+            expires_at=timezone.now() + datetime.timedelta(minutes=cls.OTP_TTL_MINUTES),
+        )
+
+    def is_valid(self):
+        return not self.is_used and self.attempts < self.MAX_ATTEMPTS and self.expires_at > timezone.now()

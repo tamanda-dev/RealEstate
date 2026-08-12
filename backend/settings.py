@@ -23,6 +23,14 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 
+# Twilio SMS (currently used for the phone-based forgot-password OTP flow; see
+# backend/sms.py). Credentials are secrets and are deliberately NOT given defaults here —
+# set them in the deployment environment. When unset, backend/sms.py falls back to logging
+# a "simulated" send instead of failing, so local dev/tests work without real credentials.
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_MESSAGING_SERVICE_SID = os.environ.get('TWILIO_MESSAGING_SERVICE_SID', '')
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

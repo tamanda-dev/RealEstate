@@ -46,6 +46,9 @@ export const authAPI = {
   requestPasswordReset: (email) => api.post('/users/password-reset/', { email }),
   confirmPasswordReset: (uid, token, new_password) =>
     api.post('/users/password-reset/confirm/', { uid, token, new_password }),
+  requestPasswordResetSMS: (phone) => api.post('/users/password-reset/', { phone }),
+  confirmPasswordResetOTP: (phone, code, new_password) =>
+    api.post('/users/password-reset/confirm-otp/', { phone, code, new_password }),
 }
 
 // ── Properties ────────────────────────────────────────────────────────────────

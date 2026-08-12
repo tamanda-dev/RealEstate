@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -8,9 +10,21 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
-from .models import User
+from backend.sms import send_sms, to_e164
+from .models import User, PasswordResetOTP
 from .serializers import (UserSerializer, UserCreateSerializer, UserUpdateSerializer,
                            SelfProfileUpdateSerializer)
+
+
+def _find_user_by_phone(phone):
+    """Match on the last 9 significant digits rather than requiring an exact stored format —
+    User.phone has no enforced format (see users/models.py), so the same number might be on
+    file as '0771234567', '+263771234567', or '263771234567'. All of those share a suffix."""
+    digits = re.sub(r'\D', '', phone or '')
+    significant = digits[-9:] if len(digits) >= 9 else digits
+    if len(significant) < 7:
+        return None
+    return User.objects.filter(is_active=True, phone__endswith=significant).exclude(phone='').first()
 
 
 class IsAdminOrManager(permissions.BasePermission):
@@ -140,19 +154,26 @@ class UserViewSet(viewsets.ModelViewSet):
 
 
 class PasswordResetRequestView(APIView):
-    """Public endpoint: emails a reset link if the address matches an active account.
+    """Public endpoint: emails a reset link (given an email) or texts an OTP code (given a
+    phone) if the identifier matches an active account.
 
-    Always returns the same generic message regardless of whether the email
-    matched, so this can't be used to enumerate which addresses have accounts.
+    Always returns the same generic message regardless of whether it matched, so this can't
+    be used to enumerate which emails/phones have accounts.
     """
     permission_classes = [permissions.AllowAny]
     throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
         email = (request.data.get('email') or '').strip()
-        if not email:
-            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        phone = (request.data.get('phone') or '').strip()
+        if not email and not phone:
+            return Response({'error': 'Email or phone is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if phone:
+            return self._handle_phone(phone)
+        return self._handle_email(email)
+
+    def _handle_email(self, email):
         user = User.objects.filter(email__iexact=email, is_active=True).first()
         if user:
             uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -173,6 +194,19 @@ class PasswordResetRequestView(APIView):
             )
         return Response({
             'message': 'If an account with that email exists, a password reset link has been sent.'
+        })
+
+    def _handle_phone(self, phone):
+        user = _find_user_by_phone(phone)
+        if user and to_e164(user.phone):
+            otp = PasswordResetOTP.generate_for(user)
+            send_sms(
+                user.phone,
+                f"Your PropManager ZW password reset code is {otp.code}. It expires in "
+                f"{PasswordResetOTP.OTP_TTL_MINUTES} minutes. If you didn't request this, ignore this message.",
+            )
+        return Response({
+            'message': 'If an account with that phone number exists, a reset code has been sent by SMS.'
         })
 
 
@@ -199,6 +233,43 @@ class PasswordResetConfirmView(APIView):
             return Response({'error': 'This password reset link is invalid or has expired.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        user.set_password(new_password)
+        user.save()
+        return Response({'message': 'Your password has been reset successfully. You can now log in.'})
+
+
+class PasswordResetOTPConfirmView(APIView):
+    """Public endpoint: sets a new password given a valid phone/code pair from the SMS OTP flow."""
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        phone = (request.data.get('phone') or '').strip()
+        code = (request.data.get('code') or '').strip()
+        new_password = request.data.get('new_password') or ''
+
+        if len(new_password) < 8:
+            return Response({'error': 'Password must be at least 8 characters.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        invalid_response = Response({'error': 'That code is invalid or has expired.'},
+                                     status=status.HTTP_400_BAD_REQUEST)
+
+        user = _find_user_by_phone(phone)
+        if not user:
+            return invalid_response
+
+        otp = PasswordResetOTP.objects.filter(user=user, is_used=False).order_by('-created_at').first()
+        if not otp or not otp.is_valid():
+            return invalid_response
+
+        if otp.code != code:
+            otp.attempts += 1
+            otp.save(update_fields=['attempts'])
+            return invalid_response
+
+        otp.is_used = True
+        otp.save(update_fields=['is_used'])
         user.set_password(new_password)
         user.save()
         return Response({'message': 'Your password has been reset successfully. You can now log in.'})

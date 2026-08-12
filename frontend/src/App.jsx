@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
+import VerifyResetCodePage from './pages/VerifyResetCodePage'
 import Dashboard from './pages/Dashboard'
 import PropertiesPage from './pages/PropertiesPage'
 import PropertyDetailPage from './pages/PropertyDetailPage'
@@ -61,6 +62,7 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/forgot-password" element={user ? <Navigate to="/" replace /> : <ForgotPasswordPage />} />
       <Route path="/reset-password" element={user ? <Navigate to="/" replace /> : <ResetPasswordPage />} />
+      <Route path="/verify-reset-code" element={user ? <Navigate to="/" replace /> : <VerifyResetCodePage />} />
       <Route path="/"              element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/analytics"     element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
       <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
