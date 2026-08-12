@@ -3,7 +3,7 @@ import { Plus, Calculator, Send } from 'lucide-react'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
-import { bookingsAPI, currencyAPI } from '../services/api'
+import { bookingsAPI, currencyAPI, propertiesAPI, salesAPI, crmAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 
 const TABS = ['Quotations', 'Price Calculator']
@@ -33,11 +33,15 @@ export default function QuotationsPage() {
   const [rate, setRate] = useState(13.7)
   const [showNewQuotation, setShowNewQuotation] = useState(false)
   const [quoteForm, setQuoteForm] = useState({
-    property: '', contact: '', deal_type: 'sale',
+    property: '', contactKind: 'contact', contact: '', lead: '', deal_type: 'sale',
     base_price_usd: '', notes: '',
   })
+  const [properties, setProperties] = useState([])
+  const [contacts, setContacts] = useState([])
+  const [leads, setLeads] = useState([])
 
   // Calculator state
+  const [calcProperty, setCalcProperty] = useState('')
   const [calc, setCalc] = useState(DEFAULT_CALC)
   const [calcResult, setCalcResult] = useState(null)
   const [calcLoading, setCalcLoading] = useState(false)
@@ -48,7 +52,7 @@ export default function QuotationsPage() {
 
   useEffect(() => {
     currencyAPI.latest().then(({ data }) => {
-      if (data?.rate) setRate(parseFloat(data.rate))
+      if (data?.usd_to_zig) setRate(parseFloat(data.usd_to_zig))
     }).catch(() => {})
   }, [])
 
@@ -65,6 +69,23 @@ export default function QuotationsPage() {
   }, [toast])
 
   useEffect(() => { loadQuotations() }, [loadQuotations])
+
+  useEffect(() => {
+    Promise.all([
+      propertiesAPI.list({ page_size: 200 }),
+      salesAPI.contacts.list({ page_size: 200 }),
+      crmAPI.leads.list({ page_size: 200 }),
+    ]).then(([pRes, cRes, lRes]) => {
+      setProperties(Array.isArray(pRes.data) ? pRes.data : pRes.data?.results ?? [])
+      setContacts(Array.isArray(cRes.data) ? cRes.data : cRes.data?.results ?? [])
+      setLeads(Array.isArray(lRes.data) ? lRes.data : lRes.data?.results ?? [])
+    }).catch(() => { /* dropdowns just stay empty if this fails */ })
+  }, [])
+
+  const openNewQuotation = () => {
+    setQuoteForm({ property: '', contactKind: 'contact', contact: '', lead: '', deal_type: 'sale', base_price_usd: '', notes: '' })
+    setShowNewQuotation(true)
+  }
 
   // Live calculator
   useEffect(() => {
@@ -127,34 +148,48 @@ export default function QuotationsPage() {
 
   const handleCreateQuotation = async () => {
     try {
-      await bookingsAPI.quotations.create(quoteForm)
+      await bookingsAPI.quotations.create({
+        property: quoteForm.property,
+        contact: quoteForm.contactKind === 'contact' ? quoteForm.contact || null : null,
+        lead: quoteForm.contactKind === 'lead' ? quoteForm.lead || null : null,
+        deal_type: quoteForm.deal_type,
+        base_price_usd: quoteForm.base_price_usd,
+        notes: quoteForm.notes,
+      })
       toast('Quotation created', 'success')
       setShowNewQuotation(false)
       loadQuotations()
-    } catch {
-      toast('Failed to create quotation', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to create quotation', 'error')
     }
   }
 
   const handleGenerateFromCalc = async () => {
     if (!calcResult) return
+    if (!calcProperty) { toast('Select a property first', 'error'); return }
     try {
       await bookingsAPI.quotations.create({
+        property: calcProperty,
         base_price_usd: calc.base_price,
-        discount_amount: calc.discount_amount || 0,
+        // subtotal/vat/total are computed server-side from these components in
+        // Quotation.save() — not sent directly (total_usd is read-only anyway).
+        discount_amount_usd: calc.discount_amount || 0,
         vat_rate: calc.vat_rate,
-        stamp_duty: calc.stamp_duty || 0,
-        registration_fees: calc.registration_fees || 0,
-        legal_fees: calc.legal_fees || 0,
-        parking_cost: calc.parking_cost || 0,
-        other_charges: calc.other_charges || 0,
+        stamp_duty_usd: calc.stamp_duty || 0,
+        registration_fees_usd: calc.registration_fees || 0,
+        legal_fees_usd: calc.legal_fees || 0,
+        parking_cost_usd: calc.parking_cost || 0,
+        other_charges_usd: calc.other_charges || 0,
         notes: calc.notes,
-        total_usd: calcResult.total_usd,
       })
       toast('Quotation generated and saved', 'success')
       loadQuotations()
-    } catch {
-      toast('Failed to generate quotation', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to generate quotation', 'error')
     }
   }
 
@@ -200,7 +235,7 @@ export default function QuotationsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Quotations & Price Calculator</h1>
           <p className="text-slate-500 text-sm mt-0.5">Generate and manage property quotations</p>
         </div>
-        <button onClick={() => setShowNewQuotation(true)}
+        <button onClick={openNewQuotation}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
           <Plus size={16} /> New Quotation
         </button>
@@ -236,6 +271,16 @@ export default function QuotationsPage() {
               <Calculator size={16} /> Price Inputs
             </h2>
             <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Property *</label>
+                <select value={calcProperty} onChange={e => setCalcProperty(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select property...</option>
+                  {properties.map(p => (
+                    <option key={p.id} value={p.id}>{p.name ?? p.address}</option>
+                  ))}
+                </select>
+              </div>
               {[
                 { key: 'base_price', label: 'Base Price (USD) *' },
                 { key: 'discount_amount', label: 'Discount Amount (USD)' },
@@ -340,14 +385,42 @@ export default function QuotationsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Property</label>
-              <input value={quoteForm.property} onChange={e => setQuoteForm(p => ({ ...p, property: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Property ID or name" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Property *</label>
+              <select value={quoteForm.property} onChange={e => setQuoteForm(p => ({ ...p, property: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                <option value="">Select property...</option>
+                {properties.map(p => (
+                  <option key={p.id} value={p.id}>{p.name ?? p.address}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Contact / Lead</label>
-              <input value={quoteForm.contact} onChange={e => setQuoteForm(p => ({ ...p, contact: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Contact ID or name" />
+              <div className="flex gap-2 mb-1.5">
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  <input type="radio" checked={quoteForm.contactKind === 'contact'}
+                    onChange={() => setQuoteForm(p => ({ ...p, contactKind: 'contact', lead: '' }))} />
+                  Contact
+                </label>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  <input type="radio" checked={quoteForm.contactKind === 'lead'}
+                    onChange={() => setQuoteForm(p => ({ ...p, contactKind: 'lead', contact: '' }))} />
+                  Lead
+                </label>
+              </div>
+              {quoteForm.contactKind === 'contact' ? (
+                <select value={quoteForm.contact} onChange={e => setQuoteForm(p => ({ ...p, contact: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select contact...</option>
+                  {contacts.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+                </select>
+              ) : (
+                <select value={quoteForm.lead} onChange={e => setQuoteForm(p => ({ ...p, lead: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select lead...</option>
+                  {leads.map(l => <option key={l.id} value={l.id}>{l.full_name}</option>)}
+                </select>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Deal Type</label>

@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'lettings',
     'portal',
     'aml',
+    'messaging',
 ]
 
 MIDDLEWARE = [

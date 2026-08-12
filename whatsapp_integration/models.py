@@ -42,7 +42,8 @@ class WhatsAppTemplate(models.Model):
     usage_type = models.CharField(max_length=20, choices=USAGE_CHOICES, default='custom')
     language = models.CharField(max_length=5, choices=LANGUAGE_CHOICES, default='en')
     body_text = models.TextField(
-        help_text='Use {{1}}, {{2}} for variables. E.g. "Dear {{1}}, your rent of ${{2}} is due {{3}}."')
+        help_text='Use {{variable_name}} for dynamic values. E.g. "Dear {{name}}, your rent '
+                  'of ${{amount}} is due {{date}}."')
     variable_labels = models.JSONField(default=list)
     footer_text = models.CharField(max_length=200, blank=True)
     is_approved = models.BooleanField(default=False)
@@ -52,10 +53,10 @@ class WhatsAppTemplate(models.Model):
     def __str__(self):
         return f"{self.name} ({self.usage_type})"
 
-    def render(self, variables: list) -> str:
+    def render(self, variables: dict) -> str:
         text = self.body_text
-        for i, val in enumerate(variables, 1):
-            text = text.replace(f'{{{{{i}}}}}', str(val))
+        for name, val in (variables or {}).items():
+            text = text.replace(f'{{{{{name}}}}}', str(val))
         return text
 
 

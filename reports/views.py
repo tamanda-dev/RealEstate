@@ -524,8 +524,10 @@ def commission_trends(request):
     return Response({
         'year': year,
         'rental_commission_gross': total_rental_commission,
-        'rental_commission_vat': total_vat,
-        'rental_commission_net': total_rental_commission - total_vat,
+        # Named to match the per-month keys in `monthly[]` below (and what the frontend
+        # stat cards read) rather than the `rental_commission_*` prefix used elsewhere here.
+        'vat_on_rental': total_vat,
+        'net_rental_commission': total_rental_commission - total_vat,
         'sales_commission': sales_total,
         'total_commission_income': (total_rental_commission - total_vat) + sales_total,
         'monthly': rental_monthly,

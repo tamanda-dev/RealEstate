@@ -22,8 +22,8 @@ export default function CurrencyPage() {
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
-    rate: '',
-    source: 'RBZ',
+    usd_to_zig: '',
+    source: 'rbz',
     notes: '',
   })
   const [saving, setSaving] = useState(false)
@@ -57,7 +57,7 @@ export default function CurrencyPage() {
     loadHistory()
   }, [loadLatest, loadHistory])
 
-  const currentRate = parseFloat(latest?.rate ?? 13.7)
+  const currentRate = parseFloat(latest?.usd_to_zig ?? 13.7)
   const inverseRate = currentRate > 0 ? (1 / currentRate).toFixed(6) : '—'
 
   const handleUsdChange = (val) => {
@@ -79,16 +79,18 @@ export default function CurrencyPage() {
   }
 
   const handleSetRate = async () => {
-    if (!form.rate) { toast('Please enter a rate', 'error'); return }
+    if (!form.usd_to_zig) { toast('Please enter a rate', 'error'); return }
     setSaving(true)
     try {
       await currencyAPI.create(form)
       toast('Exchange rate saved', 'success')
-      setForm(p => ({ ...p, rate: '', notes: '' }))
+      setForm(p => ({ ...p, usd_to_zig: '', notes: '' }))
       loadLatest()
       loadHistory()
-    } catch {
-      toast('Failed to save rate', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to save rate', 'error')
     } finally {
       setSaving(false)
     }
@@ -96,7 +98,7 @@ export default function CurrencyPage() {
 
   const historyColumns = [
     { key: 'date', label: 'Date', render: (v) => <span className="text-sm text-slate-600">{v ? new Date(v).toLocaleDateString() : '—'}</span> },
-    { key: 'rate', label: '1 USD → ZiG', render: (v) => <span className="font-mono font-semibold text-slate-800">{fmt(v, 4)}</span> },
+    { key: 'usd_to_zig', label: '1 USD → ZiG', render: (v) => <span className="font-mono font-semibold text-slate-800">{fmt(v, 4)}</span> },
     { key: 'source', label: 'Source', render: (v) => <Badge value={v} /> },
     { key: 'set_by', label: 'Set By', render: (v, row) => <span className="text-sm text-slate-600">{row.set_by_name ?? v ?? '—'}</span> },
     { key: 'notes', label: 'Notes', render: (v) => <span className="text-sm text-slate-500">{v || '—'}</span> },
@@ -127,7 +129,7 @@ export default function CurrencyPage() {
             ) : (
               <>
                 <div className="text-center py-4">
-                  <p className="text-4xl font-bold text-slate-800">{fmt(latest?.rate, 4)}</p>
+                  <p className="text-4xl font-bold text-slate-800">{fmt(latest?.usd_to_zig, 4)}</p>
                   <p className="text-slate-500 text-sm mt-1">ZiG per 1 USD</p>
                   <p className="text-slate-400 text-xs mt-3">Inverse: 1 ZiG = {inverseRate} USD</p>
                 </div>
@@ -190,7 +192,7 @@ export default function CurrencyPage() {
                   />
                 </div>
               </div>
-              <p className="text-center text-xs text-slate-400">Rate: 1 USD = {fmt(latest?.rate, 4)} ZiG</p>
+              <p className="text-center text-xs text-slate-400">Rate: 1 USD = {fmt(latest?.usd_to_zig, 4)} ZiG</p>
             </div>
           </div>
 
@@ -207,15 +209,16 @@ export default function CurrencyPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Rate (ZiG per USD) *</label>
-                <input type="number" step="0.0001" value={form.rate} onChange={e => setForm(p => ({ ...p, rate: e.target.value }))}
+                <input type="number" step="0.0001" value={form.usd_to_zig} onChange={e => setForm(p => ({ ...p, usd_to_zig: e.target.value }))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono" placeholder="13.7000" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Source *</label>
                 <select value={form.source} onChange={e => setForm(p => ({ ...p, source: e.target.value }))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                  <option value="RBZ">RBZ Official</option>
+                  <option value="rbz">RBZ Official</option>
                   <option value="interbank">Interbank</option>
+                  <option value="parallel">Parallel Market</option>
                   <option value="manual">Manual</option>
                 </select>
               </div>

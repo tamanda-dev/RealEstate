@@ -5,7 +5,7 @@ import {
   BookOpen, Users, LogOut, Menu, Bell, Receipt, TrendingUp,
   Users2, Calculator, CalendarCheck, RefreshCw, PieChart, Shield, FolderOpen, MessageCircle,
   ClipboardCheck, Percent, BookMarked, Home as HomeIcon, UserCog,
-  Heart, Eye, Tag, Star, LayoutDashboard, HandCoins, ShieldAlert,
+  Heart, Eye, Tag, Star, LayoutDashboard, HandCoins, ShieldAlert, MessageSquareText,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { notificationsAPI } from '../services/api'
@@ -97,6 +97,7 @@ const navGroups = [
     roles: SALES,
     items: [
       { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+      { to: '/messaging', label: 'SMS / Email', icon: MessageSquareText },
     ],
   },
   {

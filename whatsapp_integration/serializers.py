@@ -37,6 +37,5 @@ class SendMessageSerializer(serializers.Serializer):
     phone = serializers.CharField()
     message = serializers.CharField()
     template_id = serializers.IntegerField(required=False)
-    template_variables = serializers.ListField(child=serializers.CharField(), required=False)
     lead_id = serializers.IntegerField(required=False)
     contact_id = serializers.IntegerField(required=False)

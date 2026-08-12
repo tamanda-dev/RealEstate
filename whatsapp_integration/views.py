@@ -52,16 +52,14 @@ class WhatsAppMessageViewSet(viewsets.ReadOnlyModelViewSet):
         data = serializer.validated_data
         config = WhatsAppConfig.get_config()
         phone = data['phone']
+        # The client sends the already-rendered text (what the user previewed and confirmed),
+        # rather than raw template + variables — avoids the sender's variable substitution
+        # falling out of sync with whatever the UI actually shows before sending.
         message_text = data['message']
 
         template = None
         if data.get('template_id'):
-            try:
-                template = WhatsAppTemplate.objects.get(pk=data['template_id'])
-                variables = data.get('template_variables', [])
-                message_text = template.render(variables)
-            except WhatsAppTemplate.DoesNotExist:
-                pass
+            template = WhatsAppTemplate.objects.filter(pk=data['template_id']).first()
 
         lead = None
         contact = None

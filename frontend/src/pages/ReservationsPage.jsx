@@ -4,7 +4,7 @@ import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 import StatCard from '../components/StatCard'
-import { bookingsAPI, currencyAPI } from '../services/api'
+import { bookingsAPI, currencyAPI, propertiesAPI, salesAPI, crmAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 
 function fmt(n) {
@@ -28,9 +28,12 @@ export default function ReservationsPage() {
   const [showConfirm, setShowConfirm] = useState(null)
 
   const [form, setForm] = useState({
-    property: '', contact: '', deal_type: 'sale',
-    token_amount: '', currency: 'USD', valid_until: '', notes: '',
+    property: '', contactKind: 'contact', contact: '', lead: '', deal_type: 'sale',
+    token_amount_usd: '', token_currency: 'USD', valid_until: '', notes: '',
   })
+  const [properties, setProperties] = useState([])
+  const [contacts, setContacts] = useState([])
+  const [leads, setLeads] = useState([])
   const [confirmForm, setConfirmForm] = useState({
     payment_date: new Date().toISOString().slice(0, 10),
     method: 'cash', reference: '',
@@ -38,7 +41,7 @@ export default function ReservationsPage() {
 
   useEffect(() => {
     currencyAPI.latest().then(({ data }) => {
-      if (data?.rate) setRate(parseFloat(data.rate))
+      if (data?.usd_to_zig) setRate(parseFloat(data.usd_to_zig))
     }).catch(() => {})
   }, [])
 
@@ -60,15 +63,40 @@ export default function ReservationsPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  useEffect(() => {
+    Promise.all([
+      propertiesAPI.list({ page_size: 200 }),
+      salesAPI.contacts.list({ page_size: 200 }),
+      crmAPI.leads.list({ page_size: 200 }),
+    ]).then(([pRes, cRes, lRes]) => {
+      setProperties(Array.isArray(pRes.data) ? pRes.data : pRes.data?.results ?? [])
+      setContacts(Array.isArray(cRes.data) ? cRes.data : cRes.data?.results ?? [])
+      setLeads(Array.isArray(lRes.data) ? lRes.data : lRes.data?.results ?? [])
+    }).catch(() => { /* dropdowns just stay empty if this fails */ })
+  }, [])
+
+  const emptyForm = { property: '', contactKind: 'contact', contact: '', lead: '', deal_type: 'sale', token_amount_usd: '', token_currency: 'USD', valid_until: '', notes: '' }
+
   const handleCreate = async () => {
     try {
-      await bookingsAPI.reservations.create(form)
+      await bookingsAPI.reservations.create({
+        property: form.property,
+        contact: form.contactKind === 'contact' ? form.contact || null : null,
+        lead: form.contactKind === 'lead' ? form.lead || null : null,
+        deal_type: form.deal_type,
+        token_amount_usd: form.token_amount_usd,
+        token_currency: form.token_currency,
+        valid_until: form.valid_until,
+        notes: form.notes,
+      })
       toast('Reservation created', 'success')
       setShowNew(false)
-      setForm({ property: '', contact: '', deal_type: 'sale', token_amount: '', currency: 'USD', valid_until: '', notes: '' })
+      setForm(emptyForm)
       loadData()
-    } catch {
-      toast('Failed to create reservation', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to create reservation', 'error')
     }
   }
 
@@ -79,8 +107,10 @@ export default function ReservationsPage() {
       toast('Payment confirmed', 'success')
       setShowConfirm(null)
       loadData()
-    } catch {
-      toast('Failed to confirm payment', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to confirm payment', 'error')
     }
   }
 
@@ -97,7 +127,7 @@ export default function ReservationsPage() {
     { key: 'deal_type', label: 'Deal Type', render: (v) => (
       <span className="text-xs px-2 py-1 bg-slate-100 rounded-full capitalize">{v}</span>
     )},
-    { key: 'token_amount', label: 'Token (USD)', render: (v) => (
+    { key: 'token_amount_usd', label: 'Token (USD)', render: (v) => (
       <div>
         <p className="text-sm font-semibold">${fmt(v)}</p>
         {v && <p className="text-xs text-slate-400">ZiG {(parseFloat(v) * rate).toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>}
@@ -181,14 +211,42 @@ export default function ReservationsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Property</label>
-              <input value={form.property} onChange={e => setForm(p => ({ ...p, property: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Property ID or name" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Property *</label>
+              <select value={form.property} onChange={e => setForm(p => ({ ...p, property: e.target.value }))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                <option value="">Select property...</option>
+                {properties.map(p => (
+                  <option key={p.id} value={p.id}>{p.name ?? p.address}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Contact / Lead</label>
-              <input value={form.contact} onChange={e => setForm(p => ({ ...p, contact: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="Contact ID or name" />
+              <div className="flex gap-2 mb-1.5">
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  <input type="radio" checked={form.contactKind === 'contact'}
+                    onChange={() => setForm(p => ({ ...p, contactKind: 'contact', lead: '' }))} />
+                  Contact
+                </label>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  <input type="radio" checked={form.contactKind === 'lead'}
+                    onChange={() => setForm(p => ({ ...p, contactKind: 'lead', contact: '' }))} />
+                  Lead
+                </label>
+              </div>
+              {form.contactKind === 'contact' ? (
+                <select value={form.contact} onChange={e => setForm(p => ({ ...p, contact: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select contact...</option>
+                  {contacts.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+                </select>
+              ) : (
+                <select value={form.lead} onChange={e => setForm(p => ({ ...p, lead: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select lead...</option>
+                  {leads.map(l => <option key={l.id} value={l.id}>{l.full_name}</option>)}
+                </select>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Deal Type</label>
@@ -200,12 +258,12 @@ export default function ReservationsPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Token Amount</label>
-              <input type="number" value={form.token_amount} onChange={e => setForm(p => ({ ...p, token_amount: e.target.value }))}
+              <input type="number" value={form.token_amount_usd} onChange={e => setForm(p => ({ ...p, token_amount_usd: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono" placeholder="5000" />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Currency</label>
-              <select value={form.currency} onChange={e => setForm(p => ({ ...p, currency: e.target.value }))}
+              <select value={form.token_currency} onChange={e => setForm(p => ({ ...p, token_currency: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
                 <option value="USD">USD</option>
                 <option value="ZiG">ZiG</option>

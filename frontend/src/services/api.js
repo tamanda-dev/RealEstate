@@ -329,6 +329,20 @@ export const documentsAPI = { list: (p) => api.get('/documents/', {params:p}), u
 // ── WhatsApp ──────────────────────────────────────────────────────────────────
 export const whatsappAPI = { send: (d) => api.post('/whatsapp/messages/send/', d), messages: (p) => api.get('/whatsapp/messages/', {params:p}), stats: () => api.get('/whatsapp/messages/stats/'), templates: (p) => api.get('/whatsapp/templates/', {params:p}), createTemplate: (d) => api.post('/whatsapp/templates/', d), getConfig: () => api.get('/whatsapp/config/settings/'), saveConfig: (d) => api.patch('/whatsapp/config/update_settings/', d) }
 
+// ── Messaging (SMS / Email) ─────────────────────────────────────────────────────
+export const messagingAPI = {
+  email: {
+    list: (p) => api.get('/messaging/email/', { params: p }),
+    send: (d) => api.post('/messaging/email/send/', d),
+    stats: () => api.get('/messaging/email/stats/'),
+  },
+  sms: {
+    list: (p) => api.get('/messaging/sms/', { params: p }),
+    send: (d) => api.post('/messaging/sms/send/', d),
+    stats: () => api.get('/messaging/sms/stats/'),
+  },
+}
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsAPI = {
   aging: (p) => api.get('/reports/aging/', {params:p}),

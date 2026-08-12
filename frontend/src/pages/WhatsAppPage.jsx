@@ -40,7 +40,7 @@ export default function WhatsAppPage() {
   // Template modal
   const [showAddTemplate, setShowAddTemplate] = useState(false)
   const [templateForm, setTemplateForm] = useState({
-    name: '', usage_type: 'general', language: 'en', body_text: '',
+    name: '', usage_type: 'custom', language: 'en', body_text: '',
   })
 
   const loadStats = useCallback(async () => {
@@ -123,17 +123,21 @@ export default function WhatsAppPage() {
     if (!sendForm.template) { toast('Please select a template', 'error'); return }
     setSending(true)
     try {
+      // Send exactly what was previewed — the backend records template_id for the log but
+      // no longer re-renders variables itself, so what the user confirmed is what's sent.
       await whatsappAPI.send({
         phone: sendForm.phone,
+        message: preview,
         template_id: sendForm.template,
-        variables: sendForm.variables,
       })
       toast('Message sent successfully', 'success')
       setSendForm({ phone: '', template: '', variables: {} })
       setSelectedTemplate(null)
       loadStats()
-    } catch {
-      toast('Failed to send message', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to send message', 'error')
     } finally {
       setSending(false)
     }
@@ -158,15 +162,17 @@ export default function WhatsAppPage() {
       toast('Template created', 'success')
       setShowAddTemplate(false)
       loadTemplates()
-    } catch {
-      toast('Failed to create template', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to create template', 'error')
     }
   }
 
   // Extract variable names from body_text {{var}} patterns
   const getVariableLabels = (tmpl) => {
-    if (!tmpl?.body_text && !tmpl?.variable_labels) return []
-    if (tmpl.variable_labels) return tmpl.variable_labels
+    if (!tmpl) return []
+    if (tmpl.variable_labels?.length) return tmpl.variable_labels
     const matches = (tmpl.body_text ?? '').match(/\{\{(\w+)\}\}/g) ?? []
     return [...new Set(matches.map(m => m.slice(2, -2)))]
   }
@@ -177,14 +183,14 @@ export default function WhatsAppPage() {
         ? <ArrowDown size={16} className="text-green-600" />
         : <ArrowUp size={16} className="text-blue-600" />
     )},
-    { key: 'phone', label: 'Phone', render: (v) => <span className="font-mono text-sm">{v}</span> },
+    { key: 'contact_phone', label: 'Phone', render: (v) => <span className="font-mono text-sm">{v}</span> },
     { key: 'contact_name', label: 'Contact', render: (v) => <span className="text-sm">{v || '—'}</span> },
     { key: 'template_name', label: 'Template', render: (v) => <span className="text-sm">{v || '—'}</span> },
-    { key: 'message_body', label: 'Preview', render: (v) => (
+    { key: 'message_text', label: 'Preview', render: (v) => (
       <span className="text-sm text-slate-500 max-w-48 truncate block">{(v ?? '').slice(0, 60)}</span>
     )},
     { key: 'status', label: 'Status', render: (v) => <Badge value={v} /> },
-    { key: 'created_at', label: 'Sent At', render: (v) => (
+    { key: 'sent_at', label: 'Sent At', render: (v) => (
       <span className="text-xs text-slate-500">{v ? new Date(v).toLocaleString() : '—'}</span>
     )},
   ]
@@ -467,12 +473,17 @@ export default function WhatsAppPage() {
               <label className="block text-xs font-medium text-slate-600 mb-1">Usage Type</label>
               <select value={templateForm.usage_type} onChange={e => setTemplateForm(p => ({ ...p, usage_type: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                <option value="general">General</option>
-                <option value="rent_reminder">Rent Reminder</option>
-                <option value="quotation">Quotation</option>
-                <option value="reservation">Reservation</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="marketing">Marketing</option>
+                <option value="custom">Custom</option>
+                <option value="quote">Property Quote</option>
+                <option value="invoice">Rent Invoice</option>
+                <option value="payment_receipt">Payment Receipt</option>
+                <option value="lease_expiry">Lease Expiry Alert</option>
+                <option value="maintenance">Maintenance Update</option>
+                <option value="brochure">Property Brochure</option>
+                <option value="lead_response">Lead Auto-Response</option>
+                <option value="overdue">Overdue Warning</option>
+                <option value="reservation">Reservation Confirmation</option>
+                <option value="welcome">Welcome</option>
               </select>
             </div>
             <div>

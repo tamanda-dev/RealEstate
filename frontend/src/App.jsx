@@ -25,6 +25,7 @@ import ReservationsPage from './pages/ReservationsPage'
 import DocumentsPage from './pages/DocumentsPage'
 import ReportsPage from './pages/ReportsPage'
 import WhatsAppPage from './pages/WhatsAppPage'
+import MessagingPage from './pages/MessagingPage'
 import PreventiveMaintenancePage from './pages/PreventiveMaintenancePage'
 import InspectionsPage from './pages/InspectionsPage'
 import LandlordPortalPage from './pages/LandlordPortalPage'
@@ -82,6 +83,7 @@ function AppRoutes() {
       <Route path="/documents"     element={<ProtectedRoute><DocumentsPage /></ProtectedRoute>} />
       <Route path="/reports"       element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
       <Route path="/whatsapp"      element={<ProtectedRoute><WhatsAppPage /></ProtectedRoute>} />
+      <Route path="/messaging"     element={<ProtectedRoute><MessagingPage /></ProtectedRoute>} />
       <Route path="/preventive"    element={<ProtectedRoute><PreventiveMaintenancePage /></ProtectedRoute>} />
       <Route path="/inspections"   element={<ProtectedRoute><InspectionsPage /></ProtectedRoute>} />
       <Route path="/landlord-portal" element={<ProtectedRoute><LandlordPortalPage /></ProtectedRoute>} />

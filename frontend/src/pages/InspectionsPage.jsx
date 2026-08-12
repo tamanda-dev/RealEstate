@@ -8,7 +8,7 @@ import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 import { useToast } from '../context/ToastContext'
-import { lettingsAPI, propertiesAPI } from '../services/api'
+import { lettingsAPI, propertiesAPI, usersAPI } from '../services/api'
 
 const TYPE_COLORS = {
   routine: 'blue',
@@ -56,7 +56,7 @@ const EMPTY_COMPLETE = {
 }
 
 const EMPTY_SCHEDULE = {
-  property_id: '',
+  property: '',
   inspection_type: 'routine',
   scheduled_date: '',
   inspector: '',
@@ -72,6 +72,7 @@ export default function InspectionsPage() {
   const [completed, setCompleted] = useState([])
   const [loading, setLoading] = useState(true)
   const [properties, setProperties] = useState([])
+  const [inspectors, setInspectors] = useState([])
 
   // Complete modal
   const [completeModal, setCompleteModal] = useState(false)
@@ -97,16 +98,18 @@ export default function InspectionsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [statsRes, scheduledRes, completedRes, propsRes] = await Promise.all([
+      const [statsRes, scheduledRes, completedRes, propsRes, usersRes] = await Promise.all([
         lettingsAPI.inspections.stats(),
         lettingsAPI.inspections.list({ status: 'scheduled' }),
         lettingsAPI.inspections.list({ status: 'completed' }),
         propertiesAPI.list(),
+        usersAPI.list({ page_size: 200 }),
       ])
       setStats(statsRes.data)
       setScheduled(Array.isArray(scheduledRes.data) ? scheduledRes.data : scheduledRes.data?.results ?? [])
       setCompleted(Array.isArray(completedRes.data) ? completedRes.data : completedRes.data?.results ?? [])
       setProperties(Array.isArray(propsRes.data) ? propsRes.data : propsRes.data?.results ?? [])
+      setInspectors(Array.isArray(usersRes.data) ? usersRes.data : usersRes.data?.results ?? [])
     } catch {
       toast.toast('Failed to load inspections data', 'error')
     } finally {
@@ -144,12 +147,18 @@ export default function InspectionsPage() {
     e.preventDefault()
     setCompleting(true)
     try {
-      await lettingsAPI.inspections.complete(selectedInspection.id, completeForm)
+      const { data: completedInspection } = await lettingsAPI.inspections.complete(selectedInspection.id, completeForm)
       toast.toast('Inspection marked complete', 'success')
       setCompleteModal(false)
       fetchAll()
-    } catch {
-      toast.toast('Failed to complete inspection', 'error')
+      // The report needs no further input beyond what was just submitted (actual date,
+      // condition, checklist) — generate and show it immediately instead of making the
+      // user find the inspection in the Completed tab and click "View Report" separately.
+      await openReport(completedInspection)
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast.toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to complete inspection', 'error')
     } finally {
       setCompleting(false)
     }
@@ -169,13 +178,15 @@ export default function InspectionsPage() {
     e.preventDefault()
     setScheduling(true)
     try {
-      await lettingsAPI.inspections.create(scheduleForm)
+      await lettingsAPI.inspections.create({ ...scheduleForm, inspector: scheduleForm.inspector || null })
       toast.toast('Inspection scheduled successfully', 'success')
       setScheduleModal(false)
       setScheduleForm(EMPTY_SCHEDULE)
       fetchAll()
-    } catch {
-      toast.toast('Failed to schedule inspection', 'error')
+    } catch (err) {
+      const data = err?.response?.data
+      const firstError = data && typeof data === 'object' ? Object.values(data)[0] : null
+      toast.toast((Array.isArray(firstError) ? firstError[0] : firstError) ?? 'Failed to schedule inspection', 'error')
     } finally {
       setScheduling(false)
     }
@@ -193,7 +204,7 @@ export default function InspectionsPage() {
       key: 'scheduled_date', label: 'Scheduled Date',
       render: (v) => <span className={dateColor(v)}>{v ? new Date(v).toLocaleDateString() : '-'}</span>
     },
-    { key: 'inspector', label: 'Inspector', render: (v) => v ?? '-' },
+    { key: 'inspector_name', label: 'Inspector', render: (v) => v || '-' },
     {
       key: 'tenant_notified', label: 'Tenant Notified',
       render: (v) => v
@@ -221,7 +232,7 @@ export default function InspectionsPage() {
     { key: 'actual_date', label: 'Completed', render: (v) => v ? new Date(v).toLocaleDateString() : '-' },
     { key: 'overall_condition', label: 'Condition', render: (v) => <Badge value={v} /> },
     { key: 'condition_score', label: 'Score', render: (v) => v != null ? <span className="font-semibold">{v}/100</span> : '-' },
-    { key: 'inspector', label: 'Inspector', render: (v) => v ?? '-' },
+    { key: 'inspector_name', label: 'Inspector', render: (v) => v || '-' },
     { key: 'action_required', label: 'Action Required', render: (v) => v ? <span className="text-red-600 font-semibold text-xs">YES</span> : <span className="text-green-600 text-xs">No</span> },
     {
       key: 'actions', label: '',
@@ -414,8 +425,8 @@ export default function InspectionsPage() {
           <form onSubmit={handleSchedule} className="space-y-4">
             <div>
               <label className={labelCls}>Property</label>
-              <select className={inputCls} value={scheduleForm.property_id}
-                onChange={e => setScheduleForm(f => ({ ...f, property_id: e.target.value }))} required>
+              <select className={inputCls} value={scheduleForm.property}
+                onChange={e => setScheduleForm(f => ({ ...f, property: e.target.value }))} required>
                 <option value="">Select property...</option>
                 {properties.map(p => (
                   <option key={p.id} value={p.id}>{p.name ?? p.address}</option>
@@ -438,9 +449,15 @@ export default function InspectionsPage() {
             </div>
             <div>
               <label className={labelCls}>Inspector</label>
-              <input type="text" className={inputCls} value={scheduleForm.inspector}
-                onChange={e => setScheduleForm(f => ({ ...f, inspector: e.target.value }))}
-                placeholder="Inspector name" />
+              <select className={inputCls} value={scheduleForm.inspector}
+                onChange={e => setScheduleForm(f => ({ ...f, inspector: e.target.value }))}>
+                <option value="">Unassigned</option>
+                {inspectors.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.first_name && u.last_name ? `${u.first_name} ${u.last_name}` : u.username}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="tn" checked={scheduleForm.tenant_notified}

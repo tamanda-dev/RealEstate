@@ -83,7 +83,7 @@ export default function CRMPage() {
 
   useEffect(() => {
     currencyAPI.latest().then(({ data }) => {
-      if (data?.rate) setRate(parseFloat(data.rate))
+      if (data?.usd_to_zig) setRate(parseFloat(data.usd_to_zig))
     }).catch(() => {})
   }, [])
 
