@@ -1,11 +1,18 @@
 from rest_framework import serializers
-from .models import EmailMessage, SMSMessage
+from .models import EmailMessage, SMSMessage, EmailTemplate
+
+
+class EmailTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmailTemplate
+        fields = '__all__'
 
 
 class EmailMessageSerializer(serializers.ModelSerializer):
     sent_by_name = serializers.SerializerMethodField()
     lead_name = serializers.CharField(source='lead.full_name', read_only=True, default='')
     contact_name = serializers.SerializerMethodField()
+    recipient_name = serializers.SerializerMethodField()
 
     class Meta:
         model = EmailMessage
@@ -18,20 +25,37 @@ class EmailMessageSerializer(serializers.ModelSerializer):
     def get_contact_name(self, obj):
         return str(obj.contact) if obj.contact else ''
 
+    def get_recipient_name(self, obj):
+        return obj.recipient.get_full_name() or obj.recipient.username if obj.recipient else ''
+
 
 class SendEmailSerializer(serializers.Serializer):
     to_email = serializers.EmailField()
     to_name = serializers.CharField(required=False, allow_blank=True)
+    recipient_id = serializers.IntegerField(required=False)
     subject = serializers.CharField()
     body = serializers.CharField()
     lead_id = serializers.IntegerField(required=False)
     contact_id = serializers.IntegerField(required=False)
 
 
+class BulkSendEmailSerializer(serializers.Serializer):
+    recipient_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+    template_id = serializers.IntegerField(required=False)
+    subject = serializers.CharField(required=False, allow_blank=True)
+    body = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, data):
+        if not data.get('template_id') and not (data.get('subject') and data.get('body')):
+            raise serializers.ValidationError('Provide either template_id or both subject and body.')
+        return data
+
+
 class SMSMessageSerializer(serializers.ModelSerializer):
     sent_by_name = serializers.SerializerMethodField()
     lead_name = serializers.CharField(source='lead.full_name', read_only=True, default='')
     contact_name = serializers.SerializerMethodField()
+    recipient_name = serializers.SerializerMethodField()
 
     class Meta:
         model = SMSMessage
@@ -44,10 +68,14 @@ class SMSMessageSerializer(serializers.ModelSerializer):
     def get_contact_name(self, obj):
         return str(obj.contact) if obj.contact else ''
 
+    def get_recipient_name(self, obj):
+        return obj.recipient.get_full_name() or obj.recipient.username if obj.recipient else ''
+
 
 class SendSMSSerializer(serializers.Serializer):
     to_phone = serializers.CharField()
     to_name = serializers.CharField(required=False, allow_blank=True)
+    recipient_id = serializers.IntegerField(required=False)
     body = serializers.CharField()
     lead_id = serializers.IntegerField(required=False)
     contact_id = serializers.IntegerField(required=False)

@@ -366,12 +366,19 @@ export const messagingAPI = {
   email: {
     list: (p) => api.get('/messaging/email/', { params: p }),
     send: (d) => api.post('/messaging/email/send/', d),
+    bulkSend: (d) => api.post('/messaging/email/bulk-send/', d),
     stats: () => api.get('/messaging/email/stats/'),
   },
   sms: {
     list: (p) => api.get('/messaging/sms/', { params: p }),
     send: (d) => api.post('/messaging/sms/send/', d),
     stats: () => api.get('/messaging/sms/stats/'),
+  },
+  emailTemplates: {
+    list: (p) => api.get('/messaging/email-templates/', { params: p }),
+    create: (d) => api.post('/messaging/email-templates/', d),
+    update: (id, d) => api.patch(`/messaging/email-templates/${id}/`, d),
+    delete: (id) => api.delete(`/messaging/email-templates/${id}/`),
   },
 }
 
