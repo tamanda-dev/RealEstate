@@ -108,6 +108,7 @@ class Payment(models.Model):
         ('cheque', 'Cheque'),
         ('online', 'Online Portal'),
     ]
+    STATUS_CHOICES = [('posted', 'Posted'), ('reversed', 'Reversed')]
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='payments')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -115,6 +116,11 @@ class Payment(models.Model):
     payment_method = models.CharField(max_length=20, choices=METHOD_CHOICES, default='bank_transfer')
     reference_number = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='posted')
+    reversed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='payments_reversed')
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversal_reason = models.TextField(blank=True)
     recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                     null=True, related_name='recorded_payments')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -124,6 +130,38 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment ${self.amount} for {self.invoice.invoice_number}"
+
+
+class Refund(models.Model):
+    """A refund of money already collected — distinct from Payment.reverse(): a reversal
+    means the payment was erroneous/duplicate and should never have counted; a refund means
+    the payment was genuinely valid but money is legitimately being returned (overpayment,
+    lease termination, etc.). Requested -> Approved -> Processed, each a separate actor."""
+    STATUS_CHOICES = [
+        ('requested', 'Requested'), ('approved', 'Approved'),
+        ('processed', 'Processed'), ('rejected', 'Rejected'),
+    ]
+
+    payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='refunds')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    reason = models.TextField()
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='requested')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                      null=True, related_name='refunds_requested')
+    requested_at = models.DateTimeField(auto_now_add=True)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='refunds_approved')
+    approved_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    refund_method = models.CharField(max_length=50, blank=True)
+    refund_reference = models.CharField(max_length=100, blank=True)
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+
+    def __str__(self):
+        return f"Refund ${self.amount} for {self.payment} ({self.status})"
 
 
 class LateFeeRule(models.Model):

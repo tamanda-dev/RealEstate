@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -6,10 +8,11 @@ from django.db.models import Sum, Count, Q
 from django.utils import timezone
 import datetime
 import calendar
-from .models import (PropertyInspection, InspectionChecklistItem, LandlordDisbursement,
-                      BulkPaymentBatch, BulkPaymentItem)
+from .models import (PropertyInspection, InspectionChecklistItem, InspectionPhoto,
+                      LandlordDisbursement, BulkPaymentBatch, BulkPaymentItem)
 from .serializers import (PropertyInspectionSerializer, InspectionChecklistItemSerializer,
-                           LandlordDisbursementSerializer, BulkPaymentBatchSerializer)
+                           InspectionPhotoSerializer, LandlordDisbursementSerializer,
+                           BulkPaymentBatchSerializer)
 
 
 class PropertyInspectionViewSet(viewsets.ModelViewSet):
@@ -67,6 +70,12 @@ class PropertyInspectionViewSet(viewsets.ModelViewSet):
         next_date = request.data.get('next_inspection_date')
         if next_date:
             inspection.next_inspection_date = next_date
+        if request.data.get('electricity_reading'):
+            inspection.electricity_reading = request.data['electricity_reading']
+        if request.data.get('water_reading'):
+            inspection.water_reading = request.data['water_reading']
+        if request.data.get('inspector_signed') in (True, 'true', 'True', '1'):
+            inspection.inspector_signed_at = timezone.now()
         # Automated scoring: if the digital sheet has rated checklist items, derive the
         # overall condition from them; otherwise fall back to the inspector's manual pick.
         inspection.recalculate_score()
@@ -105,6 +114,97 @@ class PropertyInspectionViewSet(viewsets.ModelViewSet):
                 items.filter(requires_action=True), many=True).data,
             'generated_at': datetime.date.today().isoformat(),
         })
+
+    @action(detail=True, methods=['post'])
+    def acknowledge(self, request, pk=None):
+        """Tenant sign-off that they reviewed and agree with the recorded condition —
+        deliberately a boolean+timestamp rather than a captured signature image, matching
+        the same pattern Lease already uses for signed_by_tenant/tenant_signed_at."""
+        inspection = self.get_object()
+        inspection.tenant_acknowledged = True
+        inspection.tenant_acknowledged_at = timezone.now()
+        inspection.save(update_fields=['tenant_acknowledged', 'tenant_acknowledged_at'])
+        return Response(PropertyInspectionSerializer(inspection).data)
+
+    @action(detail=True, methods=['get'])
+    def compare(self, request, pk=None):
+        """Diff this inspection's checklist against another — defaults to the paired
+        move-in/move-out inspection for the same lease if `with` isn't given explicitly."""
+        inspection = self.get_object()
+        other_id = request.query_params.get('with')
+        if other_id:
+            other = PropertyInspection.objects.filter(pk=other_id).first()
+            if not other:
+                return Response({'error': 'Comparison inspection not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            if not inspection.lease:
+                return Response({'error': 'No lease linked and no comparison inspection specified via ?with='},
+                                 status=status.HTTP_400_BAD_REQUEST)
+            other_type = 'move_out' if inspection.inspection_type == 'move_in' else 'move_in'
+            other = PropertyInspection.objects.filter(
+                lease=inspection.lease, inspection_type=other_type
+            ).exclude(pk=inspection.pk).order_by('-actual_date', '-scheduled_date').first()
+            if not other:
+                return Response({'error': f'No {other_type.replace("_", " ")} inspection found for this lease.'},
+                                 status=status.HTTP_404_NOT_FOUND)
+
+        items_a = {i.item_name: i for i in inspection.checklist_items.all()}
+        items_b = {i.item_name: i for i in other.checklist_items.all()}
+        changes = []
+        for name in sorted(set(items_a) | set(items_b)):
+            a, b = items_a.get(name), items_b.get(name)
+            cond_a = a.condition if a else None
+            cond_b = b.condition if b else None
+            if cond_a != cond_b:
+                changes.append({'item_name': name, 'this_condition': cond_a, 'other_condition': cond_b})
+
+        return Response({
+            'this_inspection': PropertyInspectionSerializer(inspection).data,
+            'other_inspection': PropertyInspectionSerializer(other).data,
+            'condition_changes': changes,
+        })
+
+    @action(detail=True, methods=['post'], url_path='suggest-deductions')
+    def suggest_deductions(self, request, pk=None):
+        """Move-out inspection -> flagged checklist items (poor condition / requires_action)
+        become draft DepositDeduction rows against the lease's SecurityDeposit, amount left
+        at $0 so an unreviewed suggestion can never silently reduce a tenant's refund — staff
+        must set a real amount (or delete it) before it counts toward anything."""
+        inspection = self.get_object()
+        if inspection.inspection_type != 'move_out':
+            return Response({'error': 'Deduction suggestions only apply to move-out inspections.'},
+                             status=status.HTTP_400_BAD_REQUEST)
+        if not inspection.lease or not hasattr(inspection.lease, 'deposit'):
+            return Response({'error': 'This inspection is not linked to a lease with a security deposit on file.'},
+                             status=status.HTTP_400_BAD_REQUEST)
+        deposit = inspection.lease.deposit
+        if deposit.status not in ('pending', 'held'):
+            return Response({'error': f'Cannot suggest deductions while the deposit is {deposit.status}.'},
+                             status=status.HTTP_400_BAD_REQUEST)
+
+        from leases.models import DepositDeduction
+        flagged = inspection.checklist_items.filter(Q(condition='poor') | Q(requires_action=True))
+        created_ids = []
+        for item in flagged:
+            already = DepositDeduction.objects.filter(
+                deposit=deposit, is_suggested=True, description__icontains=item.item_name).exists()
+            if already:
+                continue
+            d = DepositDeduction.objects.create(
+                deposit=deposit, category='damage',
+                description=f'{item.item_name} — {item.get_condition_display()} condition at move-out'
+                            + (f': {item.notes}' if item.notes else ''),
+                amount=Decimal('0'), is_suggested=True, created_by=request.user,
+            )
+            created_ids.append(d.id)
+
+        return Response({'suggested': len(created_ids), 'deduction_ids': created_ids})
+
+
+class InspectionPhotoViewSet(viewsets.ModelViewSet):
+    queryset = InspectionPhoto.objects.select_related('inspection', 'checklist_item')
+    serializer_class = InspectionPhotoSerializer
+    filterset_fields = ['inspection', 'checklist_item', 'photo_type']
 
 
 class InspectionChecklistItemViewSet(viewsets.ModelViewSet):

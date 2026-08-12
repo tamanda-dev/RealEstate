@@ -4,6 +4,7 @@ from rest_framework.response import Response
 import datetime
 from .models import Notification
 from .serializers import NotificationSerializer
+from .dispatch import notify
 
 
 class NotificationViewSet(viewsets.ModelViewSet):
@@ -70,7 +71,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
             )
             if not existing.exists():
                 for user in [lease.tenant] + managers:
-                    Notification.objects.create(
+                    notify(
                         user=user,
                         notification_type='lease_expiring',
                         priority=priority,
@@ -101,7 +102,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
             )
             if not existing.exists():
                 for user in managers:
-                    Notification.objects.create(
+                    notify(
                         user=user, notification_type='rent_review_due', priority=priority,
                         title=f'Rent Review Due — {lease.property.name}',
                         message=msg, link='/leases', related_object_id=lease.pk,
@@ -127,7 +128,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
                     f"is {days_overdue} days overdue."
                 )
                 for user in [inv.tenant] + managers:
-                    Notification.objects.create(
+                    notify(
                         user=user,
                         notification_type='rent_overdue',
                         priority='urgent',
@@ -153,7 +154,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
             )
             if not existing.exists():
                 for user in managers:
-                    Notification.objects.create(
+                    notify(
                         user=user,
                         notification_type='work_order_update',
                         priority='urgent',

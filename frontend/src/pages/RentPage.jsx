@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
-import { DollarSign, Plus, AlertTriangle, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
+import { DollarSign, Plus, AlertTriangle, Check, RefreshCw, Pencil, Trash2, Undo2, Banknote } from 'lucide-react'
 import { rentAPI, propertiesAPI, usersAPI, leasesAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import StatCard from '../components/StatCard'
 import Table from '../components/Table'
 
-const TABS = ['Invoices', 'Payments', 'Late Fee Rules', 'Recurring Invoices']
+const TABS = ['Invoices', 'Payments', 'Refunds', 'Late Fee Rules', 'Recurring Invoices']
 
 const PAYMENT_METHODS = [
   { value: 'bank_transfer', label: 'Bank Transfer / RTGS' },
@@ -27,6 +28,8 @@ const emptyInvoice = {
 
 export default function RentPage() {
   const { toast } = useToast()
+  const { user } = useAuth()
+  const canManageRefunds = user && ['admin', 'accountant', 'property_manager'].includes(user.role)
   const [tab, setTab] = useState('Invoices')
   const [invoices, setInvoices] = useState([])
   const [payments, setPayments] = useState([])
@@ -81,6 +84,86 @@ export default function RentPage() {
       const { data } = await rentAPI.payments.list()
       setPayments(Array.isArray(data) ? data : data.results ?? [])
     } catch {}
+  }
+
+  // ── Payment reversal & refunds ──────────────────────────────────────────────
+  const [refunds, setRefunds] = useState([])
+  const [reverseModal, setReverseModal] = useState(null)
+  const [reverseReason, setReverseReason] = useState('')
+  const [reversing, setReversing] = useState(false)
+  const [refundModal, setRefundModal] = useState(null)
+  const [refundForm, setRefundForm] = useState({ amount: '', reason: '' })
+  const [requestingRefund, setRequestingRefund] = useState(false)
+  const [processRefundModal, setProcessRefundModal] = useState(null)
+  const [processForm, setProcessForm] = useState({ refund_method: 'bank_transfer', refund_reference: '' })
+  const [refundBusy, setRefundBusy] = useState(false)
+
+  const fetchRefunds = async () => {
+    try {
+      const { data } = await rentAPI.refunds.list()
+      setRefunds(Array.isArray(data) ? data : data.results ?? [])
+    } catch {}
+  }
+
+  const handleReverse = async (e) => {
+    e.preventDefault()
+    setReversing(true)
+    try {
+      await rentAPI.payments.reverse(reverseModal.id, { reason: reverseReason })
+      toast('Payment reversed', 'success')
+      setReverseModal(null)
+      setReverseReason('')
+      fetchPayments()
+    } catch (err) {
+      toast(err?.response?.data?.error ?? 'Failed to reverse payment', 'error')
+    } finally { setReversing(false) }
+  }
+
+  const handleRequestRefund = async (e) => {
+    e.preventDefault()
+    setRequestingRefund(true)
+    try {
+      await rentAPI.refunds.create({ ...refundForm, payment: refundModal.id })
+      toast('Refund requested', 'success')
+      setRefundModal(null)
+      setRefundForm({ amount: '', reason: '' })
+      fetchRefunds()
+    } catch (err) {
+      const data = err?.response?.data
+      toast(data?.amount?.[0] ?? data?.detail ?? 'Failed to request refund', 'error')
+    } finally { setRequestingRefund(false) }
+  }
+
+  const handleApproveRefund = async (id) => {
+    try {
+      await rentAPI.refunds.approve(id)
+      toast('Refund approved', 'success')
+      fetchRefunds()
+    } catch (err) { toast(err?.response?.data?.error ?? 'Failed to approve refund', 'error') }
+  }
+
+  const handleRejectRefund = async (id) => {
+    const reason = window.prompt('Reason for rejecting this refund:')
+    if (reason === null) return
+    try {
+      await rentAPI.refunds.reject(id, { reason })
+      toast('Refund rejected', 'success')
+      fetchRefunds()
+    } catch (err) { toast(err?.response?.data?.error ?? 'Failed to reject refund', 'error') }
+  }
+
+  const handleProcessRefund = async (e) => {
+    e.preventDefault()
+    setRefundBusy(true)
+    try {
+      await rentAPI.refunds.process(processRefundModal.id, processForm)
+      toast('Refund processed', 'success')
+      setProcessRefundModal(null)
+      fetchRefunds()
+      fetchData()
+    } catch (err) {
+      toast(err?.response?.data?.error ?? 'Failed to process refund', 'error')
+    } finally { setRefundBusy(false) }
   }
 
   const fetchRules = async () => {
@@ -167,6 +250,7 @@ export default function RentPage() {
   useEffect(() => { fetchData() }, [])
   useEffect(() => {
     if (tab === 'Payments') fetchPayments()
+    if (tab === 'Refunds') fetchRefunds()
     if (tab === 'Late Fee Rules') fetchRules()
     if (tab === 'Recurring Invoices') { fetchRecurringProfiles(); fetchActiveLeases() }
   }, [tab])
@@ -280,7 +364,19 @@ export default function RentPage() {
       toast('Payment recorded successfully', 'success')
       fetchData()
     } catch (err) {
-      toast(err?.response?.data?.error || 'Failed to record payment', 'error')
+      const data = err?.response?.data
+      if (data?.duplicate_warning && window.confirm(`${data.error}\n\nRecord it anyway?`)) {
+        try {
+          await rentAPI.invoices.recordPayment(selectedInvoice.id, { ...payForm, confirm_duplicate: true })
+          setPayModal(false)
+          toast('Payment recorded successfully', 'success')
+          fetchData()
+        } catch (err2) {
+          toast(err2?.response?.data?.error || 'Failed to record payment', 'error')
+        }
+      } else {
+        toast(data?.error || 'Failed to record payment', 'error')
+      }
     } finally {
       setPaying(false)
     }
@@ -335,6 +431,56 @@ export default function RentPage() {
     { key: 'payment_method', label: 'Method', render: (v) => v?.replace(/_/g, ' ') || '—' },
     { key: 'payment_date', label: 'Date', render: (v) => fmtDate(v) },
     { key: 'reference_number', label: 'Reference', render: (v) => v || '—' },
+    { key: 'status', label: 'Status', render: (v) => <Badge value={v} /> },
+    {
+      key: 'id', label: 'Actions',
+      render: (v, row) => row.status === 'reversed' ? (
+        <span className="text-xs text-slate-400">{row.reversal_reason}</span>
+      ) : (
+        <div className="flex gap-1.5">
+          <button onClick={() => setReverseModal(row)}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-slate-600 text-white hover:bg-slate-700">
+            <Undo2 size={11} /> Reverse
+          </button>
+          <button onClick={() => { setRefundModal(row); setRefundForm({ amount: row.amount, reason: '' }) }}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-amber-500 text-white hover:bg-amber-600">
+            <Banknote size={11} /> Refund
+          </button>
+        </div>
+      ),
+    },
+  ]
+
+  const refundColumns = [
+    { key: 'invoice_number', label: 'Invoice #', render: (v) => <span className="font-mono text-sm">{v}</span> },
+    { key: 'tenant_name', label: 'Tenant', render: (v) => v || '—' },
+    { key: 'amount', label: 'Amount', render: (v) => fmtCurrency(v) },
+    { key: 'reason', label: 'Reason', render: (v) => <span className="text-sm text-slate-500 max-w-48 truncate block">{v}</span> },
+    { key: 'status', label: 'Status', render: (v) => <Badge value={v} /> },
+    { key: 'requested_by_name', label: 'Requested By', render: (v) => v || '—' },
+    {
+      key: 'id', label: 'Actions',
+      render: (v, row) => {
+        if (!canManageRefunds) return <span className="text-xs text-slate-400">—</span>
+        if (row.status === 'requested') {
+          return (
+            <div className="flex gap-1.5">
+              <button onClick={() => handleApproveRefund(v)}
+                className="text-xs px-2 py-1 rounded-md bg-green-600 text-white hover:bg-green-700">Approve</button>
+              <button onClick={() => handleRejectRefund(v)}
+                className="text-xs px-2 py-1 rounded-md bg-red-500 text-white hover:bg-red-600">Reject</button>
+            </div>
+          )
+        }
+        if (row.status === 'approved') {
+          return (
+            <button onClick={() => { setProcessRefundModal(row); setProcessForm({ refund_method: 'bank_transfer', refund_reference: '' }) }}
+              className="text-xs px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700">Process</button>
+          )
+        }
+        return <span className="text-xs text-slate-400">—</span>
+      },
+    },
   ]
 
   return (
@@ -387,6 +533,9 @@ export default function RentPage() {
           )}
           {tab === 'Payments' && (
             <Table columns={paymentColumns} data={payments} loading={false} emptyMessage="No payments recorded." />
+          )}
+          {tab === 'Refunds' && (
+            <Table columns={refundColumns} data={refunds} loading={false} emptyMessage="No refunds requested." />
           )}
           {tab === 'Late Fee Rules' && (
             <div className="p-5">
@@ -712,6 +861,101 @@ export default function RentPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* ── Reverse Payment Modal ── */}
+      <Modal open={!!reverseModal} onClose={() => setReverseModal(null)} title="Reverse Payment" size="sm">
+        {reverseModal && (
+          <form onSubmit={handleReverse} className="space-y-4">
+            <div className="bg-slate-50 rounded-lg p-3 text-sm">
+              <p className="text-slate-500">Amount: <strong className="text-slate-800">{fmtCurrency(reverseModal.amount)}</strong></p>
+              <p className="text-slate-500">Invoice: <strong className="text-slate-800">{reverseModal.invoice_number}</strong></p>
+            </div>
+            <p className="text-xs text-slate-400">
+              This un-does the payment's effect on the invoice entirely — use for errors or duplicates,
+              not for money genuinely being returned to the tenant (use Refund for that).
+            </p>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reason *</label>
+              <textarea required rows={2} value={reverseReason} onChange={(e) => setReverseReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setReverseModal(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={reversing}
+                className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60">
+                {reversing ? 'Reversing…' : 'Reverse Payment'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* ── Request Refund Modal ── */}
+      <Modal open={!!refundModal} onClose={() => setRefundModal(null)} title="Request Refund" size="sm">
+        {refundModal && (
+          <form onSubmit={handleRequestRefund} className="space-y-4">
+            <div className="bg-slate-50 rounded-lg p-3 text-sm">
+              <p className="text-slate-500">Original Payment: <strong className="text-slate-800">{fmtCurrency(refundModal.amount)}</strong></p>
+              <p className="text-slate-500">Invoice: <strong className="text-slate-800">{refundModal.invoice_number}</strong></p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Refund Amount *</label>
+              <input required type="number" step="0.01" min="0" max={refundModal.amount} value={refundForm.amount}
+                onChange={(e) => setRefundForm(f => ({ ...f, amount: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reason *</label>
+              <textarea required rows={2} value={refundForm.reason}
+                onChange={(e) => setRefundForm(f => ({ ...f, reason: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            </div>
+            <p className="text-xs text-slate-400">Requires admin/accountant/property manager approval before it can be processed.</p>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setRefundModal(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={requestingRefund}
+                className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60">
+                {requestingRefund ? 'Submitting…' : 'Request Refund'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* ── Process Refund Modal ── */}
+      <Modal open={!!processRefundModal} onClose={() => setProcessRefundModal(null)} title="Process Refund" size="sm">
+        {processRefundModal && (
+          <form onSubmit={handleProcessRefund} className="space-y-4">
+            <div className="bg-slate-50 rounded-lg p-3 text-sm">
+              <p className="text-slate-500">Amount: <strong className="text-slate-800">{fmtCurrency(processRefundModal.amount)}</strong></p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Refund Method</label>
+              <select value={processForm.refund_method}
+                onChange={(e) => setProcessForm(f => ({ ...f, refund_method: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white">
+                {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reference</label>
+              <input value={processForm.refund_reference}
+                onChange={(e) => setProcessForm(f => ({ ...f, refund_reference: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setProcessRefundModal(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={refundBusy}
+                className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60">
+                {refundBusy ? 'Processing…' : 'Confirm & Process'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   )

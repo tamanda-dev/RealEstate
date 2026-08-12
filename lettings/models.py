@@ -48,6 +48,12 @@ class PropertyInspection(models.Model):
     action_required = models.BooleanField(default=False)
     action_description = models.TextField(blank=True)
     next_inspection_date = models.DateField(null=True, blank=True)
+    electricity_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    water_reading = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    tenant_acknowledged = models.BooleanField(
+        default=False, help_text='Tenant has reviewed and agreed with the recorded condition')
+    tenant_acknowledged_at = models.DateTimeField(null=True, blank=True)
+    inspector_signed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -108,6 +114,24 @@ class InspectionChecklistItem(models.Model):
 
     def __str__(self):
         return f"{self.item_name} ({self.condition}) — {self.inspection}"
+
+
+class InspectionPhoto(models.Model):
+    PHOTO_TYPE_CHOICES = [('before', 'Before'), ('after', 'After'), ('general', 'General')]
+
+    inspection = models.ForeignKey(PropertyInspection, on_delete=models.CASCADE, related_name='photos')
+    checklist_item = models.ForeignKey(InspectionChecklistItem, on_delete=models.SET_NULL,
+                                        null=True, blank=True, related_name='photos')
+    image = models.ImageField(upload_to='inspection_photos/')
+    photo_type = models.CharField(max_length=10, choices=PHOTO_TYPE_CHOICES, default='general')
+    caption = models.CharField(max_length=200, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"Photo for {self.inspection} ({self.photo_type})"
 
 
 class LandlordDisbursement(models.Model):

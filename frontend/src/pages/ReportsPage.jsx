@@ -6,6 +6,7 @@ import {
 import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
 import Table from '../components/Table'
+import CompanyHeader from '../components/CompanyHeader'
 import { reportsAPI } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import {
@@ -201,6 +202,7 @@ export default function ReportsPage() {
 
   return (
     <div className="p-6 space-y-6">
+      <CompanyHeader />
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Reports & Analytics</h1>
         <p className="text-slate-500 text-sm mt-0.5">Financial and operational performance reports</p>

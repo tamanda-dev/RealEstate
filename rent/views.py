@@ -5,9 +5,11 @@ from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField as DjDecimalField
 from dateutil.relativedelta import relativedelta
 import datetime
-from .models import Invoice, Payment, LateFeeRule, RecurringInvoiceProfile
-from .serializers import (InvoiceSerializer, PaymentSerializer, LateFeeRuleSerializer,
-                           RecurringInvoiceProfileSerializer)
+from .models import Invoice, Payment, Refund, LateFeeRule, RecurringInvoiceProfile
+from .serializers import (InvoiceSerializer, PaymentSerializer, RefundSerializer,
+                           LateFeeRuleSerializer, RecurringInvoiceProfileSerializer)
+
+FINANCE_ROLES = ('admin', 'accountant', 'property_manager')
 
 
 def generate_invoice_from_profile(profile):
@@ -73,6 +75,19 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             )
 
         payment_date = request.data.get('payment_date', datetime.date.today().isoformat())
+
+        # Duplicate detection: the same amount posted against the same invoice on the same
+        # day is far more often a double-click/re-submit than two genuinely separate
+        # payments — warn once and require an explicit confirm to push it through anyway.
+        is_duplicate = Payment.objects.filter(
+            invoice=invoice, amount=amount_dec, payment_date=payment_date, status='posted',
+        ).exists()
+        if is_duplicate and not request.data.get('confirm_duplicate'):
+            return Response({
+                'error': f'A posted payment of ${amount_dec} already exists for this invoice on {payment_date}.',
+                'duplicate_warning': True,
+            }, status=status.HTTP_409_CONFLICT)
+
         payment = Payment.objects.create(
             invoice=invoice,
             amount=amount_dec,
@@ -136,11 +151,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             except DisbursementOwnerMissing:
                 # Don't let a missing property owner block recording a payment that already
                 # happened — surface it as an actionable notification instead.
-                from notifications.models import Notification
+                from notifications.dispatch import notify
                 from django.contrib.auth import get_user_model
                 User = get_user_model()
                 for manager in User.objects.filter(role__in=['admin', 'manager', 'property_manager']):
-                    Notification.objects.create(
+                    notify(
                         user=manager, notification_type='system', priority='high',
                         title='Disbursement Not Generated — Missing Property Owner',
                         message=f'Payment for {invoice.invoice_number} was recorded, but the landlord '
@@ -149,10 +164,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         link='/properties', related_object_id=invoice.property.pk,
                     )
 
-        # Create notification for tenant
+        # Notify tenant (in-app + email/SMS if they have contact details on file)
         try:
-            from notifications.models import Notification
-            Notification.objects.create(
+            from notifications.dispatch import notify
+            notify(
                 user=invoice.tenant,
                 notification_type='payment_received',
                 title='Payment Recorded',
@@ -214,9 +229,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
-    queryset = Payment.objects.select_related('invoice', 'invoice__tenant', 'recorded_by')
+    queryset = Payment.objects.select_related('invoice', 'invoice__tenant', 'recorded_by', 'reversed_by')
     serializer_class = PaymentSerializer
-    filterset_fields = ['invoice', 'payment_method']
+    filterset_fields = ['invoice', 'payment_method', 'status']
     ordering_fields = ['payment_date', 'amount']
 
     def get_queryset(self):
@@ -224,6 +239,109 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if self.request.user.role == 'tenant':
             return qs.filter(invoice__tenant=self.request.user)
         return qs
+
+    @action(detail=True, methods=['post'])
+    def reverse(self, request, pk=None):
+        """A payment that was recorded in error or a genuine duplicate — un-does its effect
+        on the invoice entirely. Distinct from a Refund: nothing is being paid back to the
+        tenant here, the payment simply never should have counted."""
+        if request.user.role not in FINANCE_ROLES:
+            return Response({'error': 'Only admin, accountant or property manager can reverse a payment.'},
+                             status=status.HTTP_403_FORBIDDEN)
+        payment = self.get_object()
+        if payment.status == 'reversed':
+            return Response({'error': 'Payment is already reversed.'}, status=status.HTTP_400_BAD_REQUEST)
+        reason = request.data.get('reason')
+        if not reason:
+            return Response({'error': 'A reason is required to reverse a payment.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from decimal import Decimal
+        payment.status = 'reversed'
+        payment.reversed_by = request.user
+        payment.reversed_at = timezone.now()
+        payment.reversal_reason = reason
+        payment.save()
+
+        invoice = payment.invoice
+        invoice.paid_amount = max(invoice.paid_amount - payment.amount, Decimal('0'))
+        today = datetime.date.today()
+        if invoice.paid_amount <= 0:
+            invoice.status = 'overdue' if invoice.due_date < today else 'sent'
+        elif invoice.paid_amount < invoice.total_amount:
+            invoice.status = 'partial'
+        invoice.save()
+
+        return Response(PaymentSerializer(payment).data)
+
+
+class RefundViewSet(viewsets.ModelViewSet):
+    """Requested -> Approved -> Processed, mirroring the security-deposit refund workflow —
+    deliberately three separate actors/timestamps rather than one status flip, so a refund
+    can't be both requested and paid out by the same click."""
+    queryset = Refund.objects.select_related('payment', 'payment__invoice', 'requested_by', 'approved_by')
+    serializer_class = RefundSerializer
+    filterset_fields = ['status', 'payment']
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def perform_create(self, serializer):
+        serializer.save(requested_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        if request.user.role not in FINANCE_ROLES:
+            return Response({'error': 'Only admin, accountant or property manager can approve a refund.'},
+                             status=status.HTTP_403_FORBIDDEN)
+        refund = self.get_object()
+        if refund.status != 'requested':
+            return Response({'error': f'Refund is already {refund.status}.'}, status=status.HTTP_400_BAD_REQUEST)
+        refund.status = 'approved'
+        refund.approved_by = request.user
+        refund.approved_at = timezone.now()
+        refund.save()
+        return Response(RefundSerializer(refund).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        if request.user.role not in FINANCE_ROLES:
+            return Response({'error': 'Only admin, accountant or property manager can reject a refund.'},
+                             status=status.HTTP_403_FORBIDDEN)
+        refund = self.get_object()
+        if refund.status not in ('requested', 'approved'):
+            return Response({'error': f'Refund is already {refund.status}.'}, status=status.HTTP_400_BAD_REQUEST)
+        refund.status = 'rejected'
+        refund.rejection_reason = request.data.get('reason', '')
+        refund.save()
+        return Response(RefundSerializer(refund).data)
+
+    @action(detail=True, methods=['post'])
+    def process(self, request, pk=None):
+        """Marks the refund as actually paid out and reduces the invoice's paid_amount —
+        money genuinely left the business at this point, distinct from approval."""
+        if request.user.role not in FINANCE_ROLES:
+            return Response({'error': 'Only admin, accountant or property manager can process a refund.'},
+                             status=status.HTTP_403_FORBIDDEN)
+        refund = self.get_object()
+        if refund.status != 'approved':
+            return Response({'error': 'Refund must be approved before it can be processed.'},
+                             status=status.HTTP_400_BAD_REQUEST)
+
+        from decimal import Decimal
+        refund.status = 'processed'
+        refund.processed_at = timezone.now()
+        refund.refund_method = request.data.get('refund_method', refund.refund_method)
+        refund.refund_reference = request.data.get('refund_reference', refund.refund_reference)
+        refund.save()
+
+        invoice = refund.payment.invoice
+        invoice.paid_amount = max(invoice.paid_amount - refund.amount, Decimal('0'))
+        today = datetime.date.today()
+        if invoice.paid_amount <= 0:
+            invoice.status = 'overdue' if invoice.due_date < today else 'sent'
+        elif invoice.paid_amount < invoice.total_amount:
+            invoice.status = 'partial'
+        invoice.save()
+
+        return Response(RefundSerializer(refund).data)
 
 
 class LateFeeRuleViewSet(viewsets.ModelViewSet):

@@ -56,16 +56,25 @@ export default function ExpensesPage() {
       if (filterCategory) params.category = filterCategory
       if (filterProperty) params.property = filterProperty
 
-      const [expRes, statsRes, catRes, propRes] = await Promise.all([
+      // allSettled so one failing request (e.g. stats) can't blank out data from the
+      // others that succeeded — previously a single failure wiped every dropdown via
+      // the shared catch block, even though its own request had come back fine.
+      const [expRes, statsRes, catRes, propRes] = await Promise.allSettled([
         expensesAPI.list(params),
         expensesAPI.stats(),
         expensesAPI.categories.list(),
         propertiesAPI.list(),
       ])
-      setExpenses(expRes.data.results || expRes.data)
-      setStats(statsRes.data)
-      setCategories(catRes.data.results || catRes.data)
-      setProperties(propRes.data.results || propRes.data)
+      const failures = []
+      if (expRes.status === 'fulfilled') setExpenses(expRes.value.data.results || expRes.value.data)
+      else failures.push('expenses')
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data)
+      else failures.push('stats')
+      if (catRes.status === 'fulfilled') setCategories(catRes.value.data.results || catRes.value.data)
+      else failures.push('categories')
+      if (propRes.status === 'fulfilled') setProperties(propRes.value.data.results || propRes.value.data)
+      else failures.push('properties')
+      if (failures.length) setError(`Failed to load: ${failures.join(', ')}`)
     } catch {
       setError('Failed to load expenses')
     } finally {

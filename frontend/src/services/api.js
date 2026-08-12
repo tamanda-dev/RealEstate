@@ -96,6 +96,14 @@ export const rentAPI = {
   },
   payments: {
     list: (params) => api.get('/rent/payments/', { params }),
+    reverse: (id, data) => api.post(`/rent/payments/${id}/reverse/`, data),
+  },
+  refunds: {
+    list: (params) => api.get('/rent/refunds/', { params }),
+    create: (data) => api.post('/rent/refunds/', data),
+    approve: (id) => api.post(`/rent/refunds/${id}/approve/`),
+    reject: (id, data) => api.post(`/rent/refunds/${id}/reject/`, data),
+    process: (id, data) => api.post(`/rent/refunds/${id}/process/`, data),
   },
   lateFeeRules: {
     list: () => api.get('/rent/late-fee-rules/'),
@@ -124,6 +132,12 @@ export const leasesAPI = {
   stats: () => api.get('/leases/dashboard_stats/'),
   conductRentReview: (id, data) => api.post(`/leases/${id}/conduct-rent-review/`, data),
   diary: (days) => api.get('/leases/lease-diary/', { params: { days } }),
+  terminateEarly: (id, data) => api.post(`/leases/${id}/terminate-early/`, data),
+  guarantors: {
+    list: (params) => api.get('/leases/guarantors/', { params }),
+    create: (data) => api.post('/leases/guarantors/', data),
+    delete: (id) => api.delete(`/leases/guarantors/${id}/`),
+  },
   renewals: {
     list: (params) => api.get('/leases/renewals/', { params }),
     accept: (id) => api.post(`/leases/renewals/${id}/accept/`),
@@ -134,6 +148,18 @@ export const leasesAPI = {
     create: (data) => api.post('/leases/clauses/', data),
     update: (id, data) => api.patch(`/leases/clauses/${id}/`, data),
     delete: (id) => api.delete(`/leases/clauses/${id}/`),
+  },
+  deposits: {
+    list: (params) => api.get('/leases/deposits/', { params }),
+    get: (id) => api.get(`/leases/deposits/${id}/`),
+    receive: (id, data) => api.post(`/leases/deposits/${id}/receive/`, data),
+    requestRefund: (id) => api.post(`/leases/deposits/${id}/request-refund/`),
+    approveRefund: (id, data) => api.post(`/leases/deposits/${id}/approve-refund/`, data),
+  },
+  deductions: {
+    list: (params) => api.get('/leases/deposit-deductions/', { params }),
+    create: (data) => api.post('/leases/deposit-deductions/', data),
+    delete: (id) => api.delete(`/leases/deposit-deductions/${id}/`),
   },
 }
 
@@ -326,6 +352,12 @@ export const bookingsAPI = {
 // ── Documents ─────────────────────────────────────────────────────────────────
 export const documentsAPI = { list: (p) => api.get('/documents/', {params:p}), upload: (d) => api.post('/documents/', d, {headers:{'Content-Type':'multipart/form-data'}}), expiringSoon: (days) => api.get('/documents/expiring_soon/', {params:{days}}) }
 
+// ── Company Settings ─────────────────────────────────────────────────────────
+export const companyAPI = {
+  get: () => api.get('/company-settings/settings/'),
+  update: (d) => api.patch('/company-settings/update_settings/', d, { headers: { 'Content-Type': 'multipart/form-data' } }),
+}
+
 // ── WhatsApp ──────────────────────────────────────────────────────────────────
 export const whatsappAPI = { send: (d) => api.post('/whatsapp/messages/send/', d), messages: (p) => api.get('/whatsapp/messages/', {params:p}), stats: () => api.get('/whatsapp/messages/stats/'), templates: (p) => api.get('/whatsapp/templates/', {params:p}), createTemplate: (d) => api.post('/whatsapp/templates/', d), getConfig: () => api.get('/whatsapp/config/settings/'), saveConfig: (d) => api.patch('/whatsapp/config/update_settings/', d) }
 
@@ -383,6 +415,9 @@ export const lettingsAPI = {
     stats: () => api.get('/lettings/inspections/dashboard_stats/'),
     addChecklistItem: (id,d) => api.post(`/lettings/inspections/${id}/checklist-items/`, d),
     generateReport: (id) => api.get(`/lettings/inspections/${id}/generate-report/`),
+    acknowledge: (id) => api.post(`/lettings/inspections/${id}/acknowledge/`),
+    compare: (id, withId) => api.get(`/lettings/inspections/${id}/compare/`, { params: withId ? { with: withId } : {} }),
+    suggestDeductions: (id) => api.post(`/lettings/inspections/${id}/suggest-deductions/`),
   },
   checklistItems: {
     update: (id,d) => api.patch(`/lettings/inspection-checklist-items/${id}/`, d),

@@ -15,8 +15,11 @@ class WhatsAppConfigViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     queryset = WhatsAppConfig.objects.all()
 
-    @action(detail=False, methods=['get'])
-    def settings(self, request):
+    @action(detail=False, methods=['get'], url_path='settings')
+    def get_settings(self, request):
+        # Named get_settings (not `settings`) — a same-named action method shadows
+        # APIView.settings (DRF's own settings object class attribute), which breaks
+        # dispatch() entirely for every request to this viewset, not just this action.
         config = WhatsAppConfig.get_config()
         return Response(WhatsAppConfigSerializer(config).data)
 

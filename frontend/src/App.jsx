@@ -26,6 +26,7 @@ import DocumentsPage from './pages/DocumentsPage'
 import ReportsPage from './pages/ReportsPage'
 import WhatsAppPage from './pages/WhatsAppPage'
 import MessagingPage from './pages/MessagingPage'
+import CompanySettingsPage from './pages/CompanySettingsPage'
 import PreventiveMaintenancePage from './pages/PreventiveMaintenancePage'
 import InspectionsPage from './pages/InspectionsPage'
 import LandlordPortalPage from './pages/LandlordPortalPage'
@@ -91,6 +92,7 @@ function AppRoutes() {
       <Route path="/commissions"   element={<ProtectedRoute><CommissionsPage /></ProtectedRoute>} />
       <Route path="/valuation-workbench" element={<ProtectedRoute><ValuationWorkbenchPage /></ProtectedRoute>} />
       <Route path="/users"          element={<ProtectedRoute><UserManagementPage /></ProtectedRoute>} />
+      <Route path="/company-settings" element={<ProtectedRoute><CompanySettingsPage /></ProtectedRoute>} />
       <Route path="/sales-manager"  element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
       <Route path="/buyer-portal"   element={<ProtectedRoute><BuyerPortalPage /></ProtectedRoute>} />
       <Route path="/buyer-portal/favourites" element={<ProtectedRoute><BuyerPortalPage /></ProtectedRoute>} />

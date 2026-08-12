@@ -28,4 +28,5 @@ urlpatterns = [
     path('api/portal/', include('portal.urls')),
     path('api/aml/', include('aml.urls')),
     path('api/messaging/', include('messaging.urls')),
+    path('api/company-settings/', include('company.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

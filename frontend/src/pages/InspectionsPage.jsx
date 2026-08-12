@@ -7,6 +7,7 @@ import StatCard from '../components/StatCard'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
+import CompanyHeader from '../components/CompanyHeader'
 import { useToast } from '../context/ToastContext'
 import { lettingsAPI, propertiesAPI, usersAPI } from '../services/api'
 
@@ -53,6 +54,9 @@ const EMPTY_COMPLETE = {
   action_required: false,
   action_description: '',
   next_inspection_date: '',
+  electricity_reading: '',
+  water_reading: '',
+  inspector_signed: false,
 }
 
 const EMPTY_SCHEDULE = {
@@ -171,6 +175,28 @@ export default function InspectionsPage() {
       setReportModal(true)
     } catch {
       toast.toast('Failed to generate report', 'error')
+    }
+  }
+
+  const handleAcknowledge = async () => {
+    try {
+      const { data } = await lettingsAPI.inspections.acknowledge(reportData.inspection.id)
+      setReportData((d) => ({ ...d, inspection: data }))
+      toast.toast('Tenant acknowledgement recorded', 'success')
+    } catch {
+      toast.toast('Failed to record acknowledgement', 'error')
+    }
+  }
+
+  const handleSuggestDeductions = async () => {
+    try {
+      const { data } = await lettingsAPI.inspections.suggestDeductions(reportData.inspection.id)
+      toast.toast(
+        data.suggested > 0
+          ? `${data.suggested} deduction(s) suggested — review them under Leases > Deposits`
+          : 'No new deductions to suggest', 'success')
+    } catch (err) {
+      toast.toast(err?.response?.data?.error ?? 'Failed to suggest deductions', 'error')
     }
   }
 
@@ -405,6 +431,26 @@ export default function InspectionsPage() {
               <input type="date" className={inputCls} value={completeForm.next_inspection_date}
                 onChange={e => setCompleteForm(f => ({ ...f, next_inspection_date: e.target.value }))} />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Electricity Meter Reading</label>
+                <input type="number" step="0.01" className={inputCls} value={completeForm.electricity_reading}
+                  onChange={e => setCompleteForm(f => ({ ...f, electricity_reading: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Water Meter Reading</label>
+                <input type="number" step="0.01" className={inputCls} value={completeForm.water_reading}
+                  onChange={e => setCompleteForm(f => ({ ...f, water_reading: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="inspector_signed" checked={completeForm.inspector_signed}
+                onChange={e => setCompleteForm(f => ({ ...f, inspector_signed: e.target.checked }))}
+                className="rounded" />
+              <label htmlFor="inspector_signed" className="text-sm font-medium text-slate-700">
+                Inspector confirms this record is accurate
+              </label>
+            </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setCompleteModal(false)}
                 className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
@@ -489,6 +535,7 @@ export default function InspectionsPage() {
       {reportModal && reportData && (
         <Modal open={true} onClose={() => setReportModal(false)} title="Inspection Report" size="md">
           <div className="space-y-4">
+            <CompanyHeader />
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-slate-800">{reportData.property_name}</p>
@@ -528,7 +575,26 @@ export default function InspectionsPage() {
               </div>
             )}
 
-            <div className="flex justify-end gap-3 pt-2">
+            {reportData.inspection?.tenant_acknowledged && (
+              <p className="text-xs text-green-600">
+                ✓ Acknowledged by tenant {reportData.inspection.tenant_acknowledged_at
+                  ? `on ${new Date(reportData.inspection.tenant_acknowledged_at).toLocaleDateString()}` : ''}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2 flex-wrap">
+              {!reportData.inspection?.tenant_acknowledged && (
+                <button onClick={handleAcknowledge}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-600 hover:bg-slate-50">
+                  Record Tenant Acknowledgement
+                </button>
+              )}
+              {reportData.inspection?.inspection_type === 'move_out' && (
+                <button onClick={handleSuggestDeductions}
+                  className="px-3 py-2 border border-amber-200 rounded-lg text-xs text-amber-700 hover:bg-amber-50">
+                  Suggest Deposit Deductions
+                </button>
+              )}
               <button onClick={() => setReportModal(false)}
                 className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Close</button>
               <button onClick={() => window.print()}

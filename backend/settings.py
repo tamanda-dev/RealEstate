@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'portal',
     'aml',
     'messaging',
+    'company',
 ]
 
 MIDDLEWARE = [

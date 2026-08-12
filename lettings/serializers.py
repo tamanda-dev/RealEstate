@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from .models import (PropertyInspection, InspectionChecklistItem, LandlordDisbursement,
-                      BulkPaymentBatch, BulkPaymentItem)
+from .models import (PropertyInspection, InspectionChecklistItem, InspectionPhoto,
+                      LandlordDisbursement, BulkPaymentBatch, BulkPaymentItem)
 import calendar
 
 
@@ -11,17 +11,24 @@ class InspectionChecklistItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['inspection']
 
 
+class InspectionPhotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InspectionPhoto
+        fields = '__all__'
+
+
 class PropertyInspectionSerializer(serializers.ModelSerializer):
     property_name = serializers.CharField(source='property.name', read_only=True)
     inspector_name = serializers.SerializerMethodField()
     days_until = serializers.SerializerMethodField()
     is_overdue = serializers.SerializerMethodField()
     checklist_items = InspectionChecklistItemSerializer(many=True, read_only=True)
+    photos = InspectionPhotoSerializer(many=True, read_only=True)
 
     class Meta:
         model = PropertyInspection
         fields = '__all__'
-        read_only_fields = ['condition_score']
+        read_only_fields = ['condition_score', 'tenant_acknowledged', 'tenant_acknowledged_at']
 
     def get_inspector_name(self, obj):
         return obj.inspector.get_full_name() if obj.inspector else ''

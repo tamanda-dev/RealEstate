@@ -1,13 +1,30 @@
 import { useState, useEffect } from 'react'
-import { Plus, AlertTriangle, Clock, Pencil, Trash2, FileText } from 'lucide-react'
+import { Plus, AlertTriangle, Clock, Pencil, Trash2, FileText, ShieldCheck, Wallet } from 'lucide-react'
 import { leasesAPI, propertiesAPI, usersAPI } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 
-const TABS = ['Active Leases', 'All Leases', 'Expiring Soon', 'Lease Diary', 'Clause Library']
+const TABS = ['Active Leases', 'All Leases', 'Expiring Soon', 'Lease Diary', 'Deposits', 'Clause Library']
 
-const LEASE_STATUSES = ['draft', 'active', 'expired', 'terminated', 'renewal_pending']
+const DEDUCTION_CATEGORIES = [
+  { value: 'damage', label: 'Property Damage' },
+  { value: 'cleaning', label: 'Cleaning' },
+  { value: 'outstanding_rent', label: 'Outstanding Rent' },
+  { value: 'unpaid_utilities', label: 'Unpaid Utilities' },
+  { value: 'other', label: 'Other' },
+]
+
+const REFUND_METHODS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'ecocash', label: 'EcoCash' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'other', label: 'Other' },
+]
+
+const LEASE_STATUSES = ['draft', 'pending_approval', 'active', 'expired', 'terminated', 'renewal_pending']
 
 const CLAUSE_CATEGORIES = [
   { value: 'payment',     label: 'Payment Terms' },
@@ -30,10 +47,13 @@ const emptyLeaseForm = {
   property: '', unit: '', tenant: '',
   start_date: '', end_date: '',
   monthly_rent: '', security_deposit: '',
+  notice_period_days: 30,
   status: 'active',
 }
 
 export default function LeasesPage() {
+  const { user } = useAuth()
+  const canApproveRefund = user && ['admin', 'accountant', 'property_manager'].includes(user.role)
   const [tab, setTab] = useState('Active Leases')
   const [leases, setLeases] = useState([])
   const [allLeases, setAllLeases] = useState([])
@@ -103,6 +123,154 @@ export default function LeasesPage() {
     } catch {}
   }
 
+  // ── Deposits ─────────────────────────────────────────────────────────────────
+  const [deposits, setDeposits] = useState([])
+  const [depositsLoading, setDepositsLoading] = useState(false)
+  const [depositModal, setDepositModal] = useState(false)
+  const [selectedDeposit, setSelectedDeposit] = useState(null)
+  const [receiveForm, setReceiveForm] = useState({ amount: '', payment_method: 'cash', payment_reference: '' })
+  const [deductionForm, setDeductionForm] = useState({ category: 'damage', description: '', amount: '' })
+  const [refundForm, setRefundForm] = useState({ refund_method: 'bank_transfer', refund_reference: '' })
+  const [depositBusy, setDepositBusy] = useState(false)
+  const [depositError, setDepositError] = useState('')
+
+  const fetchDeposits = async () => {
+    setDepositsLoading(true)
+    try {
+      const { data } = await leasesAPI.deposits.list()
+      setDeposits(Array.isArray(data) ? data : data.results ?? [])
+    } catch {} finally { setDepositsLoading(false) }
+  }
+
+  const openDeposit = (deposit) => {
+    setSelectedDeposit(deposit)
+    setReceiveForm({ amount: '', payment_method: 'cash', payment_reference: '' })
+    setDeductionForm({ category: 'damage', description: '', amount: '' })
+    setRefundForm({ refund_method: 'bank_transfer', refund_reference: '' })
+    setDepositError('')
+    setDepositModal(true)
+  }
+
+  const refreshSelectedDeposit = async (id) => {
+    const { data } = await leasesAPI.deposits.get(id)
+    setSelectedDeposit(data)
+    fetchDeposits()
+  }
+
+  const handleReceiveDeposit = async (e) => {
+    e.preventDefault()
+    setDepositBusy(true)
+    setDepositError('')
+    try {
+      await leasesAPI.deposits.receive(selectedDeposit.id, receiveForm)
+      setReceiveForm({ amount: '', payment_method: 'cash', payment_reference: '' })
+      await refreshSelectedDeposit(selectedDeposit.id)
+    } catch (err) {
+      setDepositError(err?.response?.data?.error ?? 'Failed to record receipt.')
+    } finally { setDepositBusy(false) }
+  }
+
+  const handleAddDeduction = async (e) => {
+    e.preventDefault()
+    setDepositBusy(true)
+    setDepositError('')
+    try {
+      await leasesAPI.deductions.create({ ...deductionForm, deposit: selectedDeposit.id })
+      setDeductionForm({ category: 'damage', description: '', amount: '' })
+      await refreshSelectedDeposit(selectedDeposit.id)
+    } catch (err) {
+      const data = err?.response?.data
+      setDepositError((Array.isArray(data?.[0]) ? data[0][0] : data?.error) ?? 'Failed to add deduction.')
+    } finally { setDepositBusy(false) }
+  }
+
+  const handleRemoveDeduction = async (id) => {
+    if (!window.confirm('Remove this deduction?')) return
+    try {
+      await leasesAPI.deductions.delete(id)
+      await refreshSelectedDeposit(selectedDeposit.id)
+    } catch {
+      setDepositError('Failed to remove deduction.')
+    }
+  }
+
+  const handleRequestRefund = async () => {
+    setDepositBusy(true)
+    setDepositError('')
+    try {
+      await leasesAPI.deposits.requestRefund(selectedDeposit.id)
+      await refreshSelectedDeposit(selectedDeposit.id)
+    } catch (err) {
+      setDepositError(err?.response?.data?.error ?? 'Failed to request refund.')
+    } finally { setDepositBusy(false) }
+  }
+
+  // ── Guarantors ───────────────────────────────────────────────────────────────
+  const [guarantorModal, setGuarantorModal] = useState(null)
+  const [guarantors, setGuarantors] = useState([])
+  const [guarantorForm, setGuarantorForm] = useState({ full_name: '', phone: '', email: '', id_number: '', address: '' })
+  const [savingGuarantor, setSavingGuarantor] = useState(false)
+
+  const openGuarantors = async (lease) => {
+    setGuarantorModal(lease)
+    setGuarantorForm({ full_name: '', phone: '', email: '', id_number: '', address: '' })
+    try {
+      const { data } = await leasesAPI.guarantors.list({ lease: lease.id })
+      setGuarantors(Array.isArray(data) ? data : data.results ?? [])
+    } catch { setGuarantors([]) }
+  }
+
+  const handleAddGuarantor = async (e) => {
+    e.preventDefault()
+    setSavingGuarantor(true)
+    try {
+      await leasesAPI.guarantors.create({ ...guarantorForm, lease: guarantorModal.id })
+      setGuarantorForm({ full_name: '', phone: '', email: '', id_number: '', address: '' })
+      const { data } = await leasesAPI.guarantors.list({ lease: guarantorModal.id })
+      setGuarantors(Array.isArray(data) ? data : data.results ?? [])
+    } catch {
+      setError('Failed to add guarantor.')
+    } finally { setSavingGuarantor(false) }
+  }
+
+  const handleRemoveGuarantor = async (id) => {
+    if (!window.confirm('Remove this guarantor?')) return
+    try {
+      await leasesAPI.guarantors.delete(id)
+      setGuarantors(prev => prev.filter(g => g.id !== id))
+    } catch { /* no-op */ }
+  }
+
+  // ── Terminate Early ──────────────────────────────────────────────────────────
+  const [terminateModal, setTerminateModal] = useState(null)
+  const [terminateForm, setTerminateForm] = useState({ termination_date: new Date().toISOString().slice(0, 10), reason: '' })
+  const [terminating, setTerminating] = useState(false)
+
+  const handleTerminateEarly = async (e) => {
+    e.preventDefault()
+    setTerminating(true)
+    try {
+      await leasesAPI.terminateEarly(terminateModal.id, terminateForm)
+      setTerminateModal(null)
+      fetchActive()
+      if (tab === 'All Leases') fetchAll()
+    } catch (err) {
+      setError(err?.response?.data?.error ?? 'Failed to terminate lease.')
+    } finally { setTerminating(false) }
+  }
+
+  const handleApproveRefund = async (e) => {
+    e.preventDefault()
+    setDepositBusy(true)
+    setDepositError('')
+    try {
+      await leasesAPI.deposits.approveRefund(selectedDeposit.id, refundForm)
+      await refreshSelectedDeposit(selectedDeposit.id)
+    } catch (err) {
+      setDepositError(err?.response?.data?.error ?? 'Failed to approve refund.')
+    } finally { setDepositBusy(false) }
+  }
+
   // ── Lease Diary ──
   const [diaryEvents, setDiaryEvents] = useState([])
   const [reviewModal, setReviewModal] = useState(false)
@@ -144,6 +312,7 @@ export default function LeasesPage() {
     if (tab === 'Expiring Soon')  fetchExpiring()
     if (tab === 'Lease Diary')    fetchDiary()
     if (tab === 'Clause Library') fetchClauses()
+    if (tab === 'Deposits') fetchDeposits()
   }, [tab])
 
   // Load dropdowns when modal opens
@@ -192,6 +361,7 @@ export default function LeasesPage() {
       end_date:          lease.end_date ?? '',
       monthly_rent:      lease.monthly_rent ?? '',
       security_deposit:  lease.security_deposit ?? '',
+      notice_period_days: lease.notice_period_days ?? 30,
       status:            lease.status ?? 'active',
     })
     setLeaseError('')
@@ -338,6 +508,18 @@ export default function LeasesPage() {
             title="Renew"
             className="text-[11px] px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
             Renew
+          </button>
+        )}
+        <button onClick={() => openGuarantors(row)}
+          title="Guarantors"
+          className="text-[11px] px-2 py-1 rounded bg-slate-600 text-white hover:bg-slate-700">
+          Guarantors
+        </button>
+        {row.status !== 'terminated' && (
+          <button onClick={() => { setTerminateModal(row); setTerminateForm({ termination_date: new Date().toISOString().slice(0, 10), reason: '' }) }}
+            title="Terminate Early"
+            className="text-[11px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100">
+            Terminate
           </button>
         )}
         <button onClick={() => handleDelete(row)}
@@ -515,6 +697,34 @@ export default function LeasesPage() {
         </div>
       )}
 
+      {/* ── Deposits ── */}
+      {tab === 'Deposits' && (
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+          <Table
+            columns={[
+              { key: 'tenant_name', label: 'Tenant', render: (v) => v || '—' },
+              { key: 'property_name', label: 'Property', render: (v) => v || '—' },
+              { key: 'amount_due', label: 'Due', render: (v) => fmtCurrency(v) },
+              { key: 'amount_received', label: 'Received', render: (v) => fmtCurrency(v) },
+              { key: 'refundable_amount', label: 'Refundable', render: (v) => fmtCurrency(v) },
+              { key: 'status', label: 'Status', render: (v) => <Badge value={v} /> },
+              {
+                key: 'id', label: 'Actions',
+                render: (v, row) => (
+                  <button onClick={() => openDeposit(row)}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+                    <Wallet size={12} /> Manage
+                  </button>
+                ),
+              },
+            ]}
+            data={deposits}
+            loading={depositsLoading}
+            emptyMessage="No security deposits. Deposits are auto-created when a lease with a deposit amount is added."
+          />
+        </div>
+      )}
+
       {/* ── Clause Library ── */}
       {tab === 'Clause Library' && (
         <div>
@@ -636,6 +846,12 @@ export default function LeasesPage() {
               <input type="number" step="0.01" min="0" value={leaseForm.security_deposit}
                 onChange={e => setLeaseForm(f => ({ ...f, security_deposit: e.target.value }))}
                 placeholder="e.g. 1200"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notice Period (days)</label>
+              <input type="number" min="0" value={leaseForm.notice_period_days}
+                onChange={e => setLeaseForm(f => ({ ...f, notice_period_days: e.target.value }))}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
@@ -791,6 +1007,212 @@ export default function LeasesPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* ── Manage Deposit Modal ── */}
+      <Modal open={depositModal} onClose={() => setDepositModal(false)}
+        title={`Deposit — ${selectedDeposit?.tenant_name ?? ''}`} size="lg">
+        {selectedDeposit && (
+          <div className="space-y-5">
+            {depositError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-red-600 text-sm">{depositError}</div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3 text-sm">
+              <p className="text-slate-500">Property: <strong className="text-slate-800">{selectedDeposit.property_name}</strong></p>
+              <p className="text-slate-500">Status: <Badge value={selectedDeposit.status} /></p>
+              <p className="text-slate-500">Due: <strong className="text-slate-800">{fmtCurrency(selectedDeposit.amount_due)}</strong></p>
+              <p className="text-slate-500">Received: <strong className="text-slate-800">{fmtCurrency(selectedDeposit.amount_received)}</strong></p>
+              <p className="text-slate-500">Deductions: <strong className="text-slate-800">{fmtCurrency(selectedDeposit.total_deductions)}</strong></p>
+              <p className="text-slate-500">Refundable: <strong className="text-slate-800">{fmtCurrency(selectedDeposit.refundable_amount)}</strong></p>
+            </div>
+
+            {['pending', 'held'].includes(selectedDeposit.status) && (
+              <form onSubmit={handleReceiveDeposit} className="space-y-3 border-t border-slate-100 pt-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5"><Wallet size={14} /> Record Receipt</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <input required type="number" step="0.01" min="0" placeholder="Amount"
+                    value={receiveForm.amount} onChange={e => setReceiveForm(f => ({ ...f, amount: e.target.value }))}
+                    className="col-span-1 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  <select value={receiveForm.payment_method} onChange={e => setReceiveForm(f => ({ ...f, payment_method: e.target.value }))}
+                    className="col-span-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="cash">Cash</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="ecocash">EcoCash</option>
+                    <option value="cheque">Cheque</option>
+                  </select>
+                  <input placeholder="Reference" value={receiveForm.payment_reference}
+                    onChange={e => setReceiveForm(f => ({ ...f, payment_reference: e.target.value }))}
+                    className="col-span-1 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <button type="submit" disabled={depositBusy}
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+                  {depositBusy ? 'Saving…' : 'Record Receipt'}
+                </button>
+              </form>
+            )}
+
+            {['pending', 'held'].includes(selectedDeposit.status) && (
+              <div className="border-t border-slate-100 pt-4 space-y-3">
+                <h3 className="text-sm font-semibold text-slate-700">Deductions</h3>
+                {selectedDeposit.deductions?.length > 0 && (
+                  <div className="space-y-1.5">
+                    {selectedDeposit.deductions.map(d => (
+                      <div key={d.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                        <div>
+                          <span className="font-medium text-slate-800">{d.description}</span>
+                          <span className="text-slate-400 text-xs ml-2">
+                            {DEDUCTION_CATEGORIES.find(c => c.value === d.category)?.label ?? d.category}
+                            {d.is_suggested && ' · suggested from inspection'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-red-600">{fmtCurrency(d.amount)}</span>
+                          <button onClick={() => handleRemoveDeduction(d.id)} className="text-slate-400 hover:text-red-600">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <form onSubmit={handleAddDeduction} className="grid grid-cols-4 gap-2">
+                  <select value={deductionForm.category} onChange={e => setDeductionForm(f => ({ ...f, category: e.target.value }))}
+                    className="border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white">
+                    {DEDUCTION_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                  <input required placeholder="Description" value={deductionForm.description}
+                    onChange={e => setDeductionForm(f => ({ ...f, description: e.target.value }))}
+                    className="col-span-2 border border-slate-200 rounded-lg px-2 py-2 text-sm" />
+                  <input required type="number" step="0.01" min="0" placeholder="Amount"
+                    value={deductionForm.amount} onChange={e => setDeductionForm(f => ({ ...f, amount: e.target.value }))}
+                    className="border border-slate-200 rounded-lg px-2 py-2 text-sm" />
+                  <button type="submit" disabled={depositBusy}
+                    className="col-span-4 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                    + Add Deduction
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {selectedDeposit.status === 'held' && (
+              <div className="border-t border-slate-100 pt-4">
+                <button onClick={handleRequestRefund} disabled={depositBusy}
+                  className="w-full px-4 py-2.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60">
+                  {depositBusy ? 'Submitting…' : `Request Refund (${fmtCurrency(selectedDeposit.refundable_amount)})`}
+                </button>
+              </div>
+            )}
+
+            {selectedDeposit.status === 'refund_requested' && (
+              canApproveRefund ? (
+                <form onSubmit={handleApproveRefund} className="space-y-3 border-t border-slate-100 pt-4">
+                  <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <ShieldCheck size={14} /> Approve Refund ({fmtCurrency(selectedDeposit.refund_amount)})
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <select value={refundForm.refund_method} onChange={e => setRefundForm(f => ({ ...f, refund_method: e.target.value }))}
+                      className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                      {REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                    <input placeholder="Reference" value={refundForm.refund_reference}
+                      onChange={e => setRefundForm(f => ({ ...f, refund_reference: e.target.value }))}
+                      className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <button type="submit" disabled={depositBusy}
+                    className="w-full px-4 py-2.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60">
+                    {depositBusy ? 'Processing…' : 'Approve & Process Refund'}
+                  </button>
+                </form>
+              ) : (
+                <p className="text-xs text-slate-400 border-t border-slate-100 pt-4">
+                  Refund requested — waiting on admin/accountant/property manager approval.
+                </p>
+              )
+            )}
+
+            {['refunded', 'forfeited'].includes(selectedDeposit.status) && (
+              <div className="border-t border-slate-100 pt-4 text-sm text-slate-600">
+                <p>{selectedDeposit.status === 'refunded' ? 'Refunded' : 'Forfeited'} {fmtCurrency(selectedDeposit.refund_amount)}
+                  {selectedDeposit.refund_date && ` on ${fmtDate(selectedDeposit.refund_date)}`}
+                  {selectedDeposit.approved_by_name && ` — approved by ${selectedDeposit.approved_by_name}`}.</p>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Guarantors Modal ── */}
+      <Modal open={!!guarantorModal} onClose={() => setGuarantorModal(null)}
+        title={`Guarantors — ${guarantorModal?.tenant_name ?? ''}`} size="md">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            {guarantors.length === 0 && <p className="text-sm text-slate-400">No guarantors on file.</p>}
+            {guarantors.map(g => (
+              <div key={g.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                <div>
+                  <span className="font-medium text-slate-800">{g.full_name}</span>
+                  <span className="text-xs text-slate-400 ml-2">{[g.phone, g.email].filter(Boolean).join(' · ')}</span>
+                </div>
+                <button onClick={() => handleRemoveGuarantor(g.id)} className="text-slate-400 hover:text-red-600">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={handleAddGuarantor} className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+            <input required placeholder="Full name" value={guarantorForm.full_name}
+              onChange={e => setGuarantorForm(f => ({ ...f, full_name: e.target.value }))}
+              className="col-span-2 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="Phone" value={guarantorForm.phone}
+              onChange={e => setGuarantorForm(f => ({ ...f, phone: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="Email" value={guarantorForm.email}
+              onChange={e => setGuarantorForm(f => ({ ...f, email: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="ID Number" value={guarantorForm.id_number}
+              onChange={e => setGuarantorForm(f => ({ ...f, id_number: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="Address" value={guarantorForm.address}
+              onChange={e => setGuarantorForm(f => ({ ...f, address: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+            <button type="submit" disabled={savingGuarantor}
+              className="col-span-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+              {savingGuarantor ? 'Adding…' : '+ Add Guarantor'}
+            </button>
+          </form>
+        </div>
+      </Modal>
+
+      {/* ── Terminate Early Modal ── */}
+      <Modal open={!!terminateModal} onClose={() => setTerminateModal(null)} title="Terminate Lease Early" size="sm">
+        {terminateModal && (
+          <form onSubmit={handleTerminateEarly} className="space-y-4">
+            <div className="bg-red-50 rounded-lg p-3 text-sm text-red-700">
+              This immediately sets the lease status to Terminated. This cannot be undone from here.
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Termination Date *</label>
+              <input required type="date" value={terminateForm.termination_date}
+                onChange={e => setTerminateForm(f => ({ ...f, termination_date: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reason *</label>
+              <textarea required rows={2} value={terminateForm.reason}
+                onChange={e => setTerminateForm(f => ({ ...f, reason: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setTerminateModal(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={terminating}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60">
+                {terminating ? 'Terminating…' : 'Terminate Lease'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   )

@@ -105,6 +105,7 @@ const navGroups = [
     roles: ['admin','sales_manager','property_manager','manager'],
     items: [
       { to: '/users', label: 'User Management', icon: UserCog, roles: ['admin','manager'] },
+      { to: '/company-settings', label: 'Company Settings', icon: Building2, roles: ['admin'] },
     ],
   },
 ]

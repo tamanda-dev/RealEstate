@@ -353,10 +353,9 @@ def rent_statement(request):
 @permission_classes([IsInternalStaff])
 def distribute_rent_statement(request):
     """Generate + distribute: records the statement was issued and notifies the tenant
-    in-app with a link back to their ledger (delivery_method leaves room for email/WhatsApp)."""
+    in-app, plus email or WhatsApp depending on delivery_method."""
     from rent.models import Invoice, Payment
     from django.contrib.auth import get_user_model
-    from notifications.models import Notification
     from .models import RentStatementLog
     User = get_user_model()
 
@@ -386,13 +385,33 @@ def distribute_rent_statement(request):
         tenant=tenant, period_start=period_start, period_end=period_end,
         delivery_method=delivery_method, closing_balance=closing_balance, sent_by=request.user,
     )
-    Notification.objects.create(
+    title = f'Rent Statement — {period_start.strftime("%b %Y")}'
+    message = (f'Your rent statement for {period_start.strftime("%B %Y")} is ready. '
+               f'Closing balance: ${closing_balance:,.2f}.')
+
+    from notifications.dispatch import notify
+    # delivery_method picks which extra channel rides along with the always-created
+    # in-app notification — 'in_app' alone stays app-only, matching the old behavior.
+    extra_channel = {'email': 'email', 'whatsapp': None}.get(delivery_method)
+    channels = ('app', extra_channel) if extra_channel else ('app',)
+    notify(
         user=tenant, notification_type='rent_statement', priority='normal',
-        title=f'Rent Statement — {period_start.strftime("%b %Y")}',
-        message=f'Your rent statement for {period_start.strftime("%B %Y")} is ready. '
-                f'Closing balance: ${closing_balance:,.2f}.',
-        link='/tenant-ledger',
+        title=title, message=message, link='/tenant-ledger', channels=channels,
     )
+
+    if delivery_method == 'whatsapp' and tenant.phone:
+        from whatsapp_integration.models import WhatsAppConfig, WhatsAppMessage
+        config = WhatsAppConfig.get_config()
+        wa_msg = WhatsAppMessage.objects.create(
+            direction='outbound', contact_phone=tenant.phone,
+            contact_name=tenant.get_full_name() or tenant.username,
+            message_text=message, sent_by=request.user,
+            status='simulated' if config.simulate_mode else 'pending',
+        )
+        if not config.simulate_mode and config.is_active:
+            from crm.views import _send_via_meta
+            _send_via_meta(config, tenant.phone, message, wa_msg)
+
     return Response({'message': 'Statement distributed', 'log_id': log.pk, 'closing_balance': closing_balance})
 
 
